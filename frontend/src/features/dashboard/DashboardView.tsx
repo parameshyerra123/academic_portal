@@ -526,7 +526,7 @@ export function DashboardView() {
                     <th className="px-3 py-2.5">Faculty Member</th>
                     <th className="px-3 py-2.5">Department</th>
                     <th className="px-3 py-2.5">Assigned Class Load</th>
-                    <th className="px-3 py-2.5 text-center">Today's Sessions</th>
+                    <th className="px-3 py-2.5 text-center">Today&apos;s Sessions</th>
                     <th className="px-3 py-2.5 text-center">Student Attendance</th>
                     <th className="px-3 py-2.5 text-right">Details</th>
                   </tr>
@@ -658,7 +658,7 @@ export function DashboardView() {
                 My Assigned Classes & Student Attendance
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                View all class sections assigned to you, required student counts, and today's attendance performance.
+                View all class sections assigned to you, required student counts, and today&apos;s attendance performance.
               </p>
             </div>
             <Link href="/attendance-posting">
