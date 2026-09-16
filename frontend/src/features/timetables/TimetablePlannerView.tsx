@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
-import { Printer } from "lucide-react";
+import { ArrowUpDown, Check, Plus, Printer, Search, Users } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
@@ -21,6 +21,25 @@ import {
   timingSlotDisplayLabel,
 } from "@/features/timetables/timing-slot-utils";
 
+type SlotCellEntry = {
+  id: number;
+  subjectId: number | null;
+  subjectCode: string | null;
+  subjectName: string | null;
+  subjectTypeSnapshot?: string | null;
+  entryType: string;
+  facultyStaffLinkId: number | null;
+  facultyName: string | null;
+  facultyHrmsId: string | null;
+  roomLabel: string | null;
+  batchLabel?: string | null;
+  customLabel?: string | null;
+  studentIds?: number[] | null;
+  studentCount?: number | null;
+  weeklyRotation?: boolean | null;
+  rotationPattern?: string | null;
+};
+
 type SlotCell = {
   slotId: number;
   slotType: string;
@@ -28,19 +47,8 @@ type SlotCell = {
   label: string;
   startTime: string;
   endTime: string;
-  entry: null | {
-    id: number;
-    subjectId: number | null;
-    subjectCode: string | null;
-    subjectName: string | null;
-    subjectTypeSnapshot?: string | null;
-    entryType: string;
-    facultyStaffLinkId: number | null;
-    facultyName: string | null;
-    facultyHrmsId: string | null;
-    roomLabel: string | null;
-    customLabel?: string | null;
-  };
+  entry: null | SlotCellEntry;
+  entries?: SlotCellEntry[];
 };
 
 type PlannerResponse = {
@@ -103,13 +111,27 @@ type LocalAssignment = {
   hrmsEmployeeId: string;
   facultyName: string;
   roomLabel: string;
+  /** Classification or batch tag: "Batch 1", "Batch 2" */
+  batchLabel: string;
   /** Free/special period label (CRT, Games, Library, etc.) */
   customLabel: string;
+  studentIds?: number[] | null;
+  studentCount?: number | null;
+  weeklyRotation?: boolean | null;
+  rotationPattern?: string | null;
+};
+
+type SectionStudent = {
+  id: number;
+  pin_no: string | null;
+  student_name: string | null;
+  admission_number: string;
 };
 
 type PeriodMode = "subject" | "special";
 
 const SPECIAL_PERIOD_SUGGESTIONS = ["CRT", "Games", "Library", "Seminar", "Mentor", "Self Study"];
+const BATCH_SUGGESTIONS = ["Batch 1", "Batch 2"];
 
 type ReviewPayload = {
   ok: boolean;
@@ -134,11 +156,17 @@ function assignmentSignature(assignments: LocalAssignment[]): string {
         subjectId: item.subjectId,
         hrmsEmployeeId: item.hrmsEmployeeId,
         roomLabel: item.roomLabel,
+        batchLabel: item.batchLabel,
         customLabel: item.customLabel,
         entryType: item.entryType,
+        studentIds: item.studentIds ?? null,
+        weeklyRotation: Boolean(item.weeklyRotation),
+        rotationPattern: item.rotationPattern ?? null,
       }))
       .sort((a, b) =>
-        `${a.dayOfWeek}:${a.timingSlotId}`.localeCompare(`${b.dayOfWeek}:${b.timingSlotId}`),
+        `${a.dayOfWeek}:${a.timingSlotId}:${a.batchLabel}:${a.subjectId}`.localeCompare(
+          `${b.dayOfWeek}:${b.timingSlotId}:${b.batchLabel}:${b.subjectId}`,
+        ),
       ),
   );
 }
@@ -231,6 +259,762 @@ function FacultyPickerMeta({
   );
 }
 
+type DraftAllocation = {
+  key: string;
+  mode: PeriodMode;
+  subjectId: string;
+  customLabel: string;
+  hrmsEmployeeId: string;
+  facultyName: string;
+  roomLabel: string;
+  batchLabel: string;
+  entryType: "theory" | "lab" | "other";
+  facultySearch: string;
+  facultyOpen: boolean;
+  studentIds?: number[];
+  studentCount?: number;
+  weeklyRotation?: boolean;
+  rotationPattern?: string | null;
+};
+
+function AllocationEditorCard({
+  alloc,
+  index,
+  total,
+  isSplit = false,
+  studentCount = 0,
+  planner,
+  assignments,
+  dayCode,
+  slotId,
+  fieldClass,
+  onChange,
+  onRemove,
+}: {
+  alloc: DraftAllocation;
+  index: number;
+  total: number;
+  isSplit?: boolean;
+  studentCount?: number;
+  planner: PlannerResponse;
+  assignments: LocalAssignment[];
+  dayCode: string;
+  slotId: number;
+  fieldClass: string;
+  onChange: (patch: Partial<DraftAllocation>) => void;
+  onRemove: () => void;
+}) {
+  const filteredFaculty = useMemo(() => {
+    const list = planner.faculty ?? [];
+    const q = alloc.facultySearch.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const digitsOnly = q.replace(/\D/g, "");
+
+    return list.filter((f) => {
+      const name = (f.name ?? "").toLowerCase();
+      const id = (f.hrmsEmployeeId ?? "").toLowerCase();
+      const idDigits = (f.hrmsEmployeeId ?? "").replace(/\D/g, "");
+      const dept = (f.department ?? "").toLowerCase();
+      const div = (f.division ?? "").toLowerCase();
+      const desig = (f.designation ?? "").toLowerCase();
+      const grp = ((f as { employeeGroup?: string }).employeeGroup ?? "").toLowerCase();
+
+      return (
+        name.includes(q) ||
+        id.includes(q) ||
+        (digitsOnly.length > 0 && idDigits.includes(digitsOnly)) ||
+        dept.includes(q) ||
+        div.includes(q) ||
+        desig.includes(q) ||
+        grp.includes(q)
+      );
+    });
+  }, [planner.faculty, alloc.facultySearch]);
+
+  const visibleFaculty = useMemo(
+    () => filteredFaculty.slice(0, 6),
+    [filteredFaculty],
+  );
+
+  const selectedFaculty = useMemo(() => {
+    if (!alloc.hrmsEmployeeId) return null;
+    return (
+      planner.faculty.find((f) => f.hrmsEmployeeId === alloc.hrmsEmployeeId) ?? null
+    );
+  }, [alloc.hrmsEmployeeId, planner.faculty]);
+
+  const facultyAutoMatched = useMemo(() => {
+    if (alloc.mode !== "subject" || !alloc.subjectId || !alloc.hrmsEmployeeId) {
+      return false;
+    }
+    const inferred = resolveFacultyForSubject(
+      assignments,
+      Number(alloc.subjectId),
+      alloc.entryType,
+      { dayOfWeek: dayCode, timingSlotId: slotId },
+    );
+    return inferred === alloc.hrmsEmployeeId;
+  }, [alloc.entryType, alloc.hrmsEmployeeId, alloc.mode, alloc.subjectId, assignments, dayCode, slotId]);
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4 space-y-3.5 shadow-xs transition-colors",
+        isSplit
+          ? index === 0
+            ? "border-indigo-200 bg-indigo-50/25"
+            : "border-emerald-200 bg-emerald-50/25"
+          : "border-border bg-slate-50/60",
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
+        <div className="flex items-center gap-2">
+          {isSplit || total > 1 ? (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold text-white shadow-xs",
+                index === 0 ? "bg-indigo-600" : "bg-emerald-600",
+              )}
+            >
+              #{index + 1}
+            </span>
+          ) : null}
+          <span className="text-xs font-bold text-navy-900">
+            {isSplit
+              ? index === 0
+                ? "Batch 1"
+                : "Batch 2"
+              : total > 1
+                ? `Parallel Subject ${index + 1}`
+                : "Period Subject & Faculty"}
+          </span>
+        </div>
+        {!isSplit && total > 1 ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-md px-2.5 py-1 text-xs font-semibold text-critical hover:bg-critical/10 transition-colors"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+
+      {/* Batch classification when in split mode: strictly Batch 1 or Batch 2 */}
+      {isSplit ? (
+        <div className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs">
+          <span className="font-semibold text-slate-700">Designated Batch:</span>
+          <span
+            className={cn(
+              "rounded-full px-3 py-0.5 font-bold text-white text-xs shadow-xs",
+              index === 0 ? "bg-indigo-600" : "bg-emerald-600",
+            )}
+          >
+            {index === 0 ? "Batch 1" : "Batch 2"}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Mode toggle */}
+      <div className="flex gap-2 rounded-lg border border-border bg-slate-100/70 p-1">
+        <button
+          type="button"
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            alloc.mode === "subject"
+              ? "bg-white text-navy-900 shadow-sm"
+              : "text-slate-600 hover:text-navy-900",
+          )}
+          onClick={() =>
+            onChange({
+              mode: "subject",
+              customLabel: "",
+            })
+          }
+        >
+          Subject class
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            alloc.mode === "special"
+              ? "bg-white text-navy-900 shadow-sm"
+              : "text-slate-600 hover:text-navy-900",
+          )}
+          onClick={() =>
+            onChange({
+              mode: "special",
+              subjectId: "",
+              entryType: "other",
+            })
+          }
+        >
+          Free / Special
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {alloc.mode === "special" ? (
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1.5 block font-medium text-slate-700">Period name</span>
+            <input
+              className={fieldClass}
+              placeholder="e.g. CRT, Games, Library"
+              value={alloc.customLabel}
+              onChange={(e) => onChange({ customLabel: e.target.value })}
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {SPECIAL_PERIOD_SUGGESTIONS.map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-xs transition-colors",
+                    alloc.customLabel.trim().toLowerCase() === label.toLowerCase()
+                      ? "border-navy-800 bg-navy-900 text-white"
+                      : "border-border bg-white text-slate-600 hover:border-slate-300",
+                  )}
+                  onClick={() => onChange({ customLabel: label })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </label>
+        ) : (
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1.5 block font-medium text-slate-700">Subject</span>
+            <select
+              className={fieldClass}
+              value={alloc.subjectId}
+              onChange={(e) => {
+                const subjectId = e.target.value;
+                const subject = planner.subjects.find((s) => String(s.id) === subjectId);
+                const entryType = subject ? mapEmsTypeToEntryType(subject.type) : alloc.entryType;
+                const inferredFaculty = subjectId
+                  ? resolveFacultyForSubject(assignments, Number(subjectId), entryType, {
+                      dayOfWeek: dayCode,
+                      timingSlotId: slotId,
+                    })
+                  : "";
+                const matchedFacultyObj = inferredFaculty
+                  ? planner.faculty.find((f) => f.hrmsEmployeeId === inferredFaculty)
+                  : null;
+                onChange({
+                  subjectId,
+                  entryType,
+                  hrmsEmployeeId: inferredFaculty || alloc.hrmsEmployeeId,
+                  facultyName: matchedFacultyObj?.name || alloc.facultyName,
+                  facultySearch: "",
+                  facultyOpen: false,
+                });
+              }}
+            >
+              <option value="">Select subject</option>
+              {planner.subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.code} — {subject.name}
+                  {subject.type ? ` (${subject.type})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label className="block text-sm">
+          <span className="mb-1.5 block font-medium text-slate-700">
+            Room / Lab <span className="font-normal text-slate-400">(optional)</span>
+          </span>
+          <input
+            className={fieldClass}
+            placeholder="e.g. Lab-1, A-204"
+            value={alloc.roomLabel}
+            onChange={(e) => onChange({ roomLabel: e.target.value })}
+          />
+        </label>
+
+        {alloc.mode === "subject" ? (
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-slate-700">Class Type</span>
+            <select
+              className={fieldClass}
+              value={alloc.entryType}
+              onChange={(e) =>
+                onChange({ entryType: e.target.value as "theory" | "lab" | "other" })
+              }
+            >
+              <option value="theory">Theory</option>
+              <option value="lab">Lab</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        ) : (
+          <div className="block text-sm">
+            <span className="mb-1.5 block font-medium text-slate-700">Type</span>
+            <div className={cn(fieldClass, "flex items-center text-slate-600")}>
+              Free / Special period
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Faculty picker */}
+      <div className="block text-sm">
+        <span className="mb-1.5 block font-medium text-slate-700">
+          Faculty {alloc.mode === "special" ? <span className="font-normal text-slate-400">(optional)</span> : null}
+        </span>
+
+        {selectedFaculty && !alloc.facultyOpen ? (
+          <div className="flex items-start justify-between gap-2 rounded-lg border border-navy-200 bg-navy-50/60 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-navy-900">{selectedFaculty.name}</p>
+              <FacultyPickerMeta faculty={selectedFaculty} />
+              {facultyAutoMatched ? (
+                <p className="mt-1 text-xs text-emerald-700">
+                  Auto-filled from another period for this subject.
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs font-medium text-navy-800 hover:underline"
+              onClick={() => {
+                onChange({ hrmsEmployeeId: "", facultyName: "", facultySearch: "", facultyOpen: true });
+              }}
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border bg-white">
+            <div className="p-2">
+              <input
+                type="search"
+                autoFocus={!selectedFaculty && alloc.mode === "subject"}
+                placeholder="Type at least 2 letters to search faculty…"
+                className="h-9 w-full rounded-md border border-border bg-slate-50 px-3 text-sm outline-none focus:border-navy-700 focus:bg-white focus:ring-2 focus:ring-navy-900/10"
+                value={alloc.facultySearch}
+                onChange={(e) => {
+                  onChange({ facultySearch: e.target.value, facultyOpen: true });
+                }}
+              />
+            </div>
+
+            {alloc.facultySearch.trim().length < 2 ? (
+              <p className="border-t border-border px-3 py-3 text-xs text-slate-500">
+                Search by name, emp no, department, division, or designation.
+                {alloc.mode === "special" ? " Faculty is optional for free/special periods." : ""}
+              </p>
+            ) : filteredFaculty.length === 0 ? (
+              <p className="border-t border-border px-3 py-3 text-sm text-slate-500">No matching staff</p>
+            ) : (
+              <div className="max-h-56 overflow-y-auto border-t border-border p-2">
+                <div className="grid grid-cols-1 gap-1.5">
+                  {visibleFaculty.map((fac) => {
+                    const active = alloc.hrmsEmployeeId === fac.hrmsEmployeeId;
+                    return (
+                      <button
+                        key={fac.hrmsEmployeeId}
+                        type="button"
+                        className={cn(
+                          "flex w-full flex-col items-start rounded-md border px-3 py-2.5 text-left transition-colors",
+                          active
+                            ? "border-navy-900 bg-navy-900 text-white"
+                            : "border-border/80 hover:border-slate-300 hover:bg-slate-50",
+                        )}
+                        onClick={() => {
+                          onChange({
+                            hrmsEmployeeId: fac.hrmsEmployeeId,
+                            facultyName: fac.name,
+                            facultySearch: "",
+                            facultyOpen: false,
+                          });
+                        }}
+                      >
+                        <span className={cn("text-sm font-medium leading-snug", active ? "text-white" : "text-navy-900")}>
+                          {fac.name}
+                        </span>
+                        <FacultyPickerMeta faculty={fac} active={active} />
+                      </button>
+                    );
+                  })}
+                </div>
+                {filteredFaculty.length > 6 ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Showing 6 of {filteredFaculty.length} — type more to narrow
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {filteredFaculty.length} match{filteredFaculty.length === 1 ? "" : "es"}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Live student count badge for this batch */}
+      {isSplit ? (
+        <div
+          className={cn(
+            "flex items-center justify-between rounded-lg border px-3 py-2 text-xs",
+            index === 0
+              ? "border-indigo-200 bg-indigo-50/70 text-indigo-900"
+              : "border-emerald-200 bg-emerald-50/70 text-emerald-900",
+          )}
+        >
+          <div className="flex items-center gap-1.5 font-semibold">
+            <Users className="h-4 w-4" />
+            <span>Assigned Students:</span>
+          </div>
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-0.5 font-bold text-white text-xs shadow-xs",
+              index === 0 ? "bg-indigo-600" : "bg-emerald-600",
+            )}
+          >
+            {studentCount} {studentCount === 1 ? "student" : "students"}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StudentBatchClassifier({
+  students,
+  loading,
+  allocations,
+  studentBatchMap,
+  onAssignStudent,
+  onAssignMultiple,
+}: {
+  students: SectionStudent[];
+  loading: boolean;
+  allocations: DraftAllocation[];
+  studentBatchMap: Record<number, string>;
+  onAssignStudent: (studentId: number, batchLabel: string | null) => void;
+  onAssignMultiple: (assignments: Record<number, string>) => void;
+}) {
+  const [sortBy, setSortBy] = useState<"pin" | "name">("pin");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [search, setSearch] = useState("");
+
+  const activeBatches = useMemo(() => {
+    return ["Batch 1", "Batch 2"];
+  }, []);
+
+  const counts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const b of activeBatches) map[b] = 0;
+    let unassigned = 0;
+    for (const s of students) {
+      const assigned = studentBatchMap[s.id];
+      if (assigned && map[assigned] !== undefined) {
+        map[assigned] = (map[assigned] || 0) + 1;
+      } else {
+        unassigned++;
+      }
+    }
+    return { map, unassigned, total: students.length };
+  }, [students, studentBatchMap, activeBatches]);
+
+  const sortedStudents = useMemo(() => {
+    const list = [...students];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "pin") {
+        const pinA = (a.pin_no || a.admission_number || "").trim();
+        const pinB = (b.pin_no || b.admission_number || "").trim();
+        cmp = pinA.localeCompare(pinB, undefined, { numeric: true, sensitivity: "base" });
+      } else {
+        const nameA = (a.student_name || "").trim();
+        const nameB = (b.student_name || "").trim();
+        cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [students, sortBy, sortDir]);
+
+  const displayedStudents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return sortedStudents;
+    return sortedStudents.filter((s) => {
+      const pin = (s.pin_no || "").toLowerCase();
+      const adm = (s.admission_number || "").toLowerCase();
+      const name = (s.student_name || "").toLowerCase();
+      return pin.includes(q) || adm.includes(q) || name.includes(q);
+    });
+  }, [sortedStudents, search]);
+
+  const handleSplit5050 = () => {
+    if (activeBatches.length < 2 || sortedStudents.length === 0) return;
+    const half = Math.ceil(sortedStudents.length / 2);
+    const batch1 = activeBatches[0];
+    const batch2 = activeBatches[1];
+    const newMap: Record<number, string> = { ...studentBatchMap };
+    sortedStudents.forEach((student, idx) => {
+      newMap[student.id] = idx < half ? batch1 : batch2;
+    });
+    onAssignMultiple(newMap);
+  };
+
+  const handleSplitOddEven = () => {
+    if (activeBatches.length < 2 || sortedStudents.length === 0) return;
+    const batch1 = activeBatches[0];
+    const batch2 = activeBatches[1];
+    const newMap: Record<number, string> = { ...studentBatchMap };
+    sortedStudents.forEach((student) => {
+      const digits = (student.pin_no || student.admission_number || "").replace(/\D/g, "");
+      const num = digits ? parseInt(digits.slice(-4), 10) : student.id;
+      newMap[student.id] = num % 2 !== 0 ? batch1 : batch2;
+    });
+    onAssignMultiple(newMap);
+  };
+
+  const handleShuffleBatches = () => {
+    const newMap: Record<number, string> = { ...studentBatchMap };
+    students.forEach((s) => {
+      const current = studentBatchMap[s.id];
+      if (current === "Batch 1") {
+        newMap[s.id] = "Batch 2";
+      } else if (current === "Batch 2") {
+        newMap[s.id] = "Batch 1";
+      }
+    });
+    onAssignMultiple(newMap);
+  };
+
+  const handleAssignAll = (batch: string) => {
+    const newMap: Record<number, string> = { ...studentBatchMap };
+    students.forEach((s) => {
+      newMap[s.id] = batch;
+    });
+    onAssignMultiple(newMap);
+  };
+
+  const handleClearAll = () => {
+    onAssignMultiple({});
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-slate-50/70 p-4 space-y-3.5 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/70 pb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-navy-800" />
+            <h4 className="text-sm font-bold text-navy-900">Student Roster & Batch Allocation</h4>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Assign students from this section to Batch 1 or Batch 2 for practicals or alternate periods.
+          </p>
+        </div>
+
+        {/* Badges / summary counts */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="rounded-md bg-white border border-border px-2 py-0.5 font-medium text-slate-700">
+            Total: <strong>{counts.total}</strong>
+          </span>
+          {activeBatches.map((batch, bIdx) => (
+            <span
+              key={batch}
+              className={cn(
+                "rounded-md border px-2 py-0.5 font-semibold",
+                bIdx === 0
+                  ? "bg-indigo-50 border-indigo-200 text-indigo-800"
+                  : "bg-emerald-50 border-emerald-200 text-emerald-800",
+              )}
+            >
+              {batch}: <strong>{counts.map[batch] ?? 0}</strong>
+            </span>
+          ))}
+          {counts.unassigned > 0 ? (
+            <span className="rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 font-semibold text-amber-800">
+              Unassigned: <strong>{counts.unassigned}</strong>
+            </span>
+          ) : (
+            <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 font-semibold text-emerald-700 flex items-center gap-1">
+              <Check className="h-3 w-3" /> All Assigned
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Controls toolbar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-white p-2.5 rounded-lg border border-border">
+        {/* Sort controls */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold text-slate-600 flex items-center gap-1">
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" /> Order by:
+          </span>
+          <div className="inline-flex rounded-md border border-border bg-slate-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => setSortBy("pin")}
+              className={cn(
+                "rounded px-2 py-1 font-medium transition-colors",
+                sortBy === "pin" ? "bg-white text-navy-900 shadow-xs" : "text-slate-600 hover:text-navy-900",
+              )}
+            >
+              PIN / Roll No
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortBy("name")}
+              className={cn(
+                "rounded px-2 py-1 font-medium transition-colors",
+                sortBy === "name" ? "bg-white text-navy-900 shadow-xs" : "text-slate-600 hover:text-navy-900",
+              )}
+            >
+              Student Name
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            className="rounded border border-border bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            title="Toggle sort direction"
+          >
+            {sortDir === "asc" ? "Asc (↑)" : "Desc (↓)"}
+          </button>
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-slate-400 font-medium">Quick batching:</span>
+          <button
+            type="button"
+            onClick={handleSplit5050}
+            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 hover:bg-indigo-100 transition-colors"
+            title="Assign first 50% to Batch 1 and second 50% to Batch 2 based on current order"
+          >
+            Split 50 / 50
+          </button>
+          <button
+            type="button"
+            onClick={handleSplitOddEven}
+            className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors"
+            title="Assign odd roll numbers to Batch 1 and even roll numbers to Batch 2"
+          >
+            Odd / Even PIN
+          </button>
+          <button
+            type="button"
+            onClick={handleShuffleBatches}
+            className="rounded border border-purple-200 bg-purple-50 px-2.5 py-1 font-semibold text-purple-800 hover:bg-purple-100 transition-colors flex items-center gap-1 shadow-xs"
+            title="Swap Batch 1 students to Batch 2 and Batch 2 students to Batch 1"
+          >
+            <ArrowUpDown className="h-3.5 w-3.5 rotate-90" />
+            ⇄ Shuffle / Swap Batches
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAssignAll("Batch 1")}
+            className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            All → Batch 1
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAssignAll("Batch 2")}
+            className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            All → Batch 2
+          </button>
+          <button
+            type="button"
+            onClick={handleClearAll}
+            className="rounded border border-slate-200 px-2 py-1 font-medium text-slate-500 hover:text-critical hover:border-critical/30 transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Search and list */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+          <input
+            type="search"
+            placeholder="Search students by PIN or name..."
+            className="h-8.5 w-full rounded-md border border-border bg-white pl-8 pr-3 text-xs outline-none focus:border-navy-700 focus:ring-1 focus:ring-navy-900/10"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-xs text-slate-500">
+            <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-navy-900 border-t-transparent mr-2" />
+            Loading student roster...
+          </div>
+        ) : displayedStudents.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-500 bg-white rounded-lg border border-border">
+            {students.length === 0
+              ? "No students registered in this section or branch."
+              : "No students match your search filter."}
+          </div>
+        ) : (
+          <div className="max-h-60 overflow-y-auto rounded-lg border border-border bg-white divide-y divide-border/60">
+            {displayedStudents.map((student, sIdx) => {
+              const assignedBatch = studentBatchMap[student.id];
+              return (
+                <div
+                  key={student.id}
+                  className="flex items-center justify-between py-2 px-3 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+                    <span className="w-6 text-[11px] text-slate-400 font-mono text-right shrink-0">
+                      {sIdx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-navy-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          {student.pin_no || student.admission_number}
+                        </span>
+                        <span className="text-xs font-medium text-slate-800 truncate">
+                          {student.student_name || "Unnamed Student"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {activeBatches.map((batch, bIdx) => {
+                      const active = assignedBatch === batch;
+                      return (
+                        <button
+                          key={batch}
+                          type="button"
+                          onClick={() => onAssignStudent(student.id, active ? null : batch)}
+                          className={cn(
+                            "px-2.5 py-1 rounded text-xs font-semibold border transition-all",
+                            active
+                              ? bIdx === 0
+                                ? "bg-indigo-600 border-indigo-700 text-white shadow-xs"
+                                : "bg-emerald-600 border-emerald-700 text-white shadow-xs"
+                              : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                          )}
+                        >
+                          {batch}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TimetablePlannerView({ embedded = false }: { embedded?: boolean }) {
   const { filters, masters } = useAcademicContext();
   const { hasPermission, hasAnyPermission } = useAuth();
@@ -250,16 +1034,13 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const [baselineSignature, setBaselineSignature] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [timingsOpen, setTimingsOpen] = useState(false);
-  const [form, setForm] = useState({
-    mode: "subject" as PeriodMode,
-    subjectId: "",
-    customLabel: "",
-    hrmsEmployeeId: "",
-    roomLabel: "",
-    entryType: "theory" as "theory" | "lab" | "other",
-  });
-  const [facultySearch, setFacultySearch] = useState("");
-  const [facultyOpen, setFacultyOpen] = useState(false);
+  const [slotAllocations, setSlotAllocations] = useState<DraftAllocation[]>([]);
+  const [isSplit, setIsSplit] = useState(false);
+  const [sectionStudents, setSectionStudents] = useState<SectionStudent[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentBatchMap, setStudentBatchMap] = useState<Record<number, string>>({});
+  const [weeklyRotation, setWeeklyRotation] = useState(false);
+  const [rotationPattern, setRotationPattern] = useState<number[]>([1, 2, 1, 2]);
 
   const selectedBranch =
     filters.branchId === "all" || !masters
@@ -300,6 +1081,50 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     return `?${params.toString()}`;
   }, [filters, filtersComplete]);
 
+  const fetchSectionStudents = useCallback(async () => {
+    if (!filtersComplete || !filters.collegeId || filters.collegeId === "all") {
+      setSectionStudents([]);
+      return;
+    }
+    setLoadingStudents(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("collegeId", String(filters.collegeId));
+      if (filters.courseId !== "all") params.set("courseId", String(filters.courseId));
+      if (filters.branchId !== "all") params.set("branchId", String(filters.branchId));
+      if (filters.batch !== "all") params.set("batch", String(filters.batch));
+      if (filters.year !== "all") params.set("year", String(filters.year));
+      if (filters.semester !== "all") params.set("semester", String(filters.semester));
+      if (filters.section !== "all") params.set("section", String(filters.section));
+      params.set("limit", "500");
+
+      const res = await apiFetch(`/students?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        const list: SectionStudent[] = (json.data ?? []).map((s: {
+          id: number;
+          pin_no?: string | null;
+          student_name?: string | null;
+          admission_number: string;
+        }) => ({
+          id: s.id,
+          pin_no: s.pin_no ?? null,
+          student_name: s.student_name ?? null,
+          admission_number: s.admission_number,
+        }));
+        setSectionStudents(list);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch students for section", err);
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [filters, filtersComplete]);
+
+  useEffect(() => {
+    void fetchSectionStudents();
+  }, [fetchSectionStudents]);
+
   const loadPlanner = useCallback(async () => {
     if (!query) {
       setPlanner(null);
@@ -320,25 +1145,38 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
       for (const day of data.days ?? []) {
         const dayGrid = data.grid?.[day] ?? {};
         for (const cell of Object.values(dayGrid)) {
-          if (!cell.assignable || !cell.entry) continue;
-          const customLabel = (cell.entry.customLabel ?? "").trim();
-          const isSpecial = Boolean(customLabel) && !cell.entry.subjectId;
-          const isSubjectClass =
-            Boolean(cell.entry.subjectId) && Boolean(cell.entry.facultyHrmsId);
-          if (!isSpecial && !isSubjectClass) continue;
-          loaded.push({
-            dayOfWeek: DAY_LABEL_TO_CODE[day] ?? day,
-            timingSlotId: cell.slotId,
-            subjectId: cell.entry.subjectId,
-            subjectCode: cell.entry.subjectCode ?? "",
-            subjectName: cell.entry.subjectName ?? "",
-            subjectTypeSnapshot: cell.entry.subjectTypeSnapshot ?? null,
-            entryType: (cell.entry.entryType as "theory" | "lab" | "other") || "theory",
-            hrmsEmployeeId: cell.entry.facultyHrmsId ?? "",
-            facultyName: cell.entry.facultyName ?? "",
-            roomLabel: cell.entry.roomLabel ?? "",
-            customLabel: isSpecial ? customLabel : "",
-          });
+          if (!cell.assignable) continue;
+          const cellEntries =
+            Array.isArray(cell.entries) && cell.entries.length > 0
+              ? cell.entries
+              : cell.entry
+                ? [cell.entry]
+                : [];
+          for (const ent of cellEntries) {
+            const customLabel = (ent.customLabel ?? "").trim();
+            const isSpecial = Boolean(customLabel) && !ent.subjectId;
+            const isSubjectClass =
+              Boolean(ent.subjectId) && Boolean(ent.facultyHrmsId);
+            if (!isSpecial && !isSubjectClass) continue;
+            loaded.push({
+              dayOfWeek: DAY_LABEL_TO_CODE[day] ?? day,
+              timingSlotId: cell.slotId,
+              subjectId: ent.subjectId,
+              subjectCode: ent.subjectCode ?? "",
+              subjectName: ent.subjectName ?? "",
+              subjectTypeSnapshot: ent.subjectTypeSnapshot ?? null,
+              entryType: (ent.entryType as "theory" | "lab" | "other") || "theory",
+              hrmsEmployeeId: ent.facultyHrmsId ?? "",
+              facultyName: ent.facultyName ?? "",
+              roomLabel: ent.roomLabel ?? "",
+              batchLabel: ent.batchLabel ?? "",
+              customLabel: isSpecial ? customLabel : "",
+              studentIds: ent.studentIds ?? null,
+              studentCount: ent.studentCount ?? null,
+              weeklyRotation: Boolean(ent.weeklyRotation),
+              rotationPattern: ent.rotationPattern ?? null,
+            });
+          }
         }
       }
       setAssignments(loaded);
@@ -363,10 +1201,24 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const isPublished = planner?.context.status === "published";
   const publishBlocked = isPublished && !hasLocalChanges;
 
+  const assignmentsBySlot = useMemo(() => {
+    const map = new Map<string, LocalAssignment[]>();
+    for (const item of assignments) {
+      const key = `${item.dayOfWeek}:${item.timingSlotId}`;
+      const list = map.get(key) ?? [];
+      list.push(item);
+      map.set(key, list);
+    }
+    return map;
+  }, [assignments]);
+
   const assignmentMap = useMemo(() => {
     const map = new Map<string, LocalAssignment>();
     for (const item of assignments) {
-      map.set(`${item.dayOfWeek}:${item.timingSlotId}`, item);
+      const key = `${item.dayOfWeek}:${item.timingSlotId}`;
+      if (!map.has(key)) {
+        map.set(key, item);
+      }
     }
     return map;
   }, [assignments]);
@@ -374,46 +1226,250 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const openAssign = (day: string, cell: SlotCell) => {
     if (!cell.assignable) return;
     const dayCode = DAY_LABEL_TO_CODE[day] ?? day;
-    const existing = assignmentMap.get(`${dayCode}:${cell.slotId}`);
-    const isSpecial = Boolean(existing?.customLabel) && !existing?.subjectId;
-    const entryType = existing?.entryType ?? "theory";
-    const subjectId = existing?.subjectId ? String(existing.subjectId) : "";
-    const inferredFaculty =
-      !existing?.hrmsEmployeeId && subjectId
-        ? resolveFacultyForSubject(assignments, Number(subjectId), entryType, {
-            dayOfWeek: dayCode,
-            timingSlotId: cell.slotId,
-          })
-        : "";
+    const existingList = assignmentsBySlot.get(`${dayCode}:${cell.slotId}`) ?? [];
     setSelected({ day, slotId: cell.slotId });
-    setFacultySearch("");
-    setFacultyOpen(false);
-    setForm({
-      mode: isSpecial ? "special" : "subject",
-      subjectId,
-      customLabel: existing?.customLabel ?? "",
-      hrmsEmployeeId: existing?.hrmsEmployeeId ?? inferredFaculty,
-      roomLabel: existing?.roomLabel ?? "",
-      entryType,
+
+    const hasRotation = existingList.some((item) => Boolean(item.weeklyRotation));
+    const hasSplit =
+      existingList.length > 1 ||
+      Boolean(existingList[0]?.batchLabel) ||
+      Boolean(existingList[0]?.studentIds && existingList[0]!.studentIds!.length > 0) ||
+      hasRotation;
+
+    setIsSplit(hasSplit);
+    setWeeklyRotation(hasRotation);
+
+    const rawPattern = existingList.find((i) => i.rotationPattern)?.rotationPattern;
+    let initialPattern = [1, 2, 1, 2];
+    if (rawPattern && rawPattern.trim()) {
+      const parts = rawPattern.split(",").map((x) => parseInt(x.trim(), 10));
+      if (parts.length === 4 && parts.every((n) => n === 1 || n === 2)) {
+        initialPattern = parts;
+      }
+    }
+    setRotationPattern(initialPattern);
+
+    // Reconstruct studentBatchMap from saved assignments
+    const initialBatchMap: Record<number, string> = {};
+    if (hasSplit) {
+      existingList.forEach((item, idx) => {
+        const bLabel = item.batchLabel.trim() || `Batch ${idx + 1}`;
+        if (Array.isArray(item.studentIds)) {
+          item.studentIds.forEach((sid) => {
+            initialBatchMap[sid] = bLabel;
+          });
+        }
+      });
+    }
+    setStudentBatchMap(initialBatchMap);
+
+    if (existingList.length === 0) {
+      setSlotAllocations([
+        {
+          key: Math.random().toString(36).substring(2, 9),
+          mode: "subject",
+          subjectId: "",
+          customLabel: "",
+          hrmsEmployeeId: "",
+          facultyName: "",
+          roomLabel: "",
+          batchLabel: "",
+          entryType: "theory",
+          facultySearch: "",
+          facultyOpen: false,
+          weeklyRotation: false,
+          rotationPattern: null,
+        },
+      ]);
+    } else if (hasSplit) {
+      // Strictly 2 batches: Batch 1 and Batch 2
+      const b1Source =
+        existingList.find((i) => i.batchLabel?.toLowerCase() === "batch 1") ?? existingList[0];
+      const b2Source =
+        existingList.find((i) => i.batchLabel?.toLowerCase() === "batch 2") ?? existingList[1];
+
+      const makeAlloc = (src: LocalAssignment | undefined, defaultBatch: string): DraftAllocation => {
+        if (!src) {
+          return {
+            key: Math.random().toString(36).substring(2, 9),
+            mode: "subject",
+            subjectId: "",
+            customLabel: "",
+            hrmsEmployeeId: "",
+            facultyName: "",
+            roomLabel: "",
+            batchLabel: defaultBatch,
+            entryType: "theory",
+            facultySearch: "",
+            facultyOpen: false,
+            weeklyRotation: hasRotation,
+            rotationPattern: rawPattern ?? "1,2,1,2",
+          };
+        }
+        return {
+          key: `${src.subjectId || src.customLabel || defaultBatch}-${Math.random().toString(36).substring(2, 6)}`,
+          mode: Boolean(src.customLabel) && !src.subjectId ? "special" : "subject",
+          subjectId: src.subjectId ? String(src.subjectId) : "",
+          customLabel: src.customLabel || "",
+          hrmsEmployeeId: src.hrmsEmployeeId || "",
+          facultyName: src.facultyName || "",
+          roomLabel: src.roomLabel || "",
+          batchLabel: defaultBatch,
+          entryType: src.entryType || "theory",
+          facultySearch: "",
+          facultyOpen: false,
+          studentIds: src.studentIds ?? undefined,
+          studentCount: src.studentCount ?? undefined,
+          weeklyRotation: Boolean(src.weeklyRotation),
+          rotationPattern: src.rotationPattern ?? null,
+        };
+      };
+
+      setSlotAllocations([makeAlloc(b1Source, "Batch 1"), makeAlloc(b2Source, "Batch 2")]);
+    } else {
+      setSlotAllocations(
+        existingList.map((item, idx) => ({
+          key: `${item.subjectId || item.customLabel || idx}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          mode: Boolean(item.customLabel) && !item.subjectId ? "special" : "subject",
+          subjectId: item.subjectId ? String(item.subjectId) : "",
+          customLabel: item.customLabel || "",
+          hrmsEmployeeId: item.hrmsEmployeeId || "",
+          facultyName: item.facultyName || "",
+          roomLabel: item.roomLabel || "",
+          batchLabel: item.batchLabel || "",
+          entryType: item.entryType || "theory",
+          facultySearch: "",
+          facultyOpen: false,
+          studentIds: item.studentIds ?? undefined,
+          studentCount: item.studentCount ?? undefined,
+          weeklyRotation: Boolean(item.weeklyRotation),
+          rotationPattern: item.rotationPattern ?? null,
+        })),
+      );
+    }
+  };
+
+  const handleToggleSplit = (checked: boolean) => {
+    setIsSplit(checked);
+    if (checked) {
+      setSlotAllocations((prev) => {
+        const b1: DraftAllocation = prev[0]
+          ? { ...prev[0], batchLabel: "Batch 1" }
+          : {
+              key: Math.random().toString(36).substring(2, 9),
+              mode: "subject",
+              subjectId: "",
+              customLabel: "",
+              hrmsEmployeeId: "",
+              facultyName: "",
+              roomLabel: "",
+              batchLabel: "Batch 1",
+              entryType: "theory",
+              facultySearch: "",
+              facultyOpen: false,
+              weeklyRotation: false,
+            };
+        const b2: DraftAllocation = prev[1]
+          ? { ...prev[1], batchLabel: "Batch 2" }
+          : {
+              key: Math.random().toString(36).substring(2, 9),
+              mode: "subject",
+              subjectId: "",
+              customLabel: "",
+              hrmsEmployeeId: "",
+              facultyName: "",
+              roomLabel: "",
+              batchLabel: "Batch 2",
+              entryType: "theory",
+              facultySearch: "",
+              facultyOpen: false,
+              weeklyRotation: false,
+            };
+        return [b1, b2];
+      });
+
+      // Default to 50/50 split if students are available and unassigned
+      if (sectionStudents.length > 0 && Object.keys(studentBatchMap).length === 0) {
+        const half = Math.ceil(sectionStudents.length / 2);
+        const newMap: Record<number, string> = {};
+        sectionStudents.forEach((s, idx) => {
+          newMap[s.id] = idx < half ? "Batch 1" : "Batch 2";
+        });
+        setStudentBatchMap(newMap);
+      }
+    } else {
+      setWeeklyRotation(false);
+      setRotationPattern([1, 2, 1, 2]);
+      setSlotAllocations((prev) => {
+        const first = prev[0] || {
+          key: Math.random().toString(36).substring(2, 9),
+          mode: "subject" as PeriodMode,
+          subjectId: "",
+          customLabel: "",
+          hrmsEmployeeId: "",
+          facultyName: "",
+          roomLabel: "",
+          batchLabel: "",
+          entryType: "theory" as const,
+          facultySearch: "",
+          facultyOpen: false,
+          weeklyRotation: false,
+          rotationPattern: null,
+        };
+        return [{ ...first, batchLabel: "", weeklyRotation: false, rotationPattern: null }];
+      });
+      setStudentBatchMap({});
+    }
+  };
+
+  const updateAllocation = (index: number, patch: Partial<DraftAllocation>) => {
+    setSlotAllocations((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const removeAllocation = (index: number) => {
+    setSlotAllocations((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
     });
   };
 
   const saveLocalAssignment = () => {
     if (!selected || !planner) return;
     const dayCode = DAY_LABEL_TO_CODE[selected.day] ?? selected.day;
-    const faculty = planner.faculty.find((f) => f.hrmsEmployeeId === form.hrmsEmployeeId);
 
-    if (form.mode === "special") {
-      const customLabel = form.customLabel.trim();
-      if (!customLabel) {
-        setError("Enter a free/special period name (e.g. CRT, Games, Library)");
-        return;
+    if (slotAllocations.length === 0) {
+      setError("Please add at least one subject or special period allocation.");
+      return;
+    }
+
+    const newItems: LocalAssignment[] = [];
+    for (let i = 0; i < slotAllocations.length; i++) {
+      const alloc = slotAllocations[i];
+      const bLabel = isSplit ? (alloc.batchLabel.trim() || `Batch ${i + 1}`) : "";
+
+      let assignedStudentIds: number[] | null = null;
+      let assignedStudentCount: number | null = null;
+      if (isSplit) {
+        const sids = Object.entries(studentBatchMap)
+          .filter(([_, batch]) => batch === bLabel)
+          .map(([id]) => Number(id));
+        assignedStudentIds = sids.length > 0 ? sids : null;
+        assignedStudentCount = sids.length;
       }
-      setAssignments((prev) => {
-        const next = prev.filter(
-          (a) => !(a.dayOfWeek === dayCode && a.timingSlotId === selected.slotId),
-        );
-        next.push({
+
+      if (alloc.mode === "special") {
+        const customLabel = alloc.customLabel.trim();
+        if (!customLabel) {
+          setError(`Period #${i + 1}: Free/Special period name is required (e.g. CRT, Games, Library).`);
+          return;
+        }
+        const faculty = alloc.hrmsEmployeeId
+          ? planner.faculty.find((f) => f.hrmsEmployeeId === alloc.hrmsEmployeeId)
+          : null;
+
+        newItems.push({
           dayOfWeek: dayCode,
           timingSlotId: selected.slotId,
           subjectId: null,
@@ -421,42 +1477,85 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
           subjectName: "",
           subjectTypeSnapshot: null,
           entryType: "other",
-          hrmsEmployeeId: faculty?.hrmsEmployeeId ?? "",
-          facultyName: faculty?.name ?? "",
-          roomLabel: form.roomLabel.trim(),
+          hrmsEmployeeId: faculty?.hrmsEmployeeId ?? (alloc.hrmsEmployeeId.trim() || ""),
+          facultyName: faculty?.name ?? (alloc.facultyName.trim() || ""),
+          roomLabel: alloc.roomLabel.trim(),
+          batchLabel: bLabel,
           customLabel,
+          studentIds: assignedStudentIds,
+          studentCount: assignedStudentCount,
+          weeklyRotation: isSplit ? weeklyRotation : false,
+          rotationPattern: isSplit && weeklyRotation ? rotationPattern.join(",") : null,
         });
-        return next;
-      });
-      setSelected(null);
-      setError(null);
-      return;
+      } else {
+        const subject = planner.subjects.find((s) => String(s.id) === alloc.subjectId);
+        const faculty = planner.faculty.find((f) => f.hrmsEmployeeId === alloc.hrmsEmployeeId);
+
+        if (!subject || !faculty) {
+          setError(`Period #${i + 1}: Both Subject and Faculty are required.`);
+          return;
+        }
+
+        newItems.push({
+          dayOfWeek: dayCode,
+          timingSlotId: selected.slotId,
+          subjectId: subject.id,
+          subjectCode: subject.code,
+          subjectName: subject.name,
+          subjectTypeSnapshot: subject.type ?? null,
+          entryType: alloc.entryType,
+          hrmsEmployeeId: faculty.hrmsEmployeeId,
+          facultyName: faculty.name,
+          roomLabel: alloc.roomLabel.trim(),
+          batchLabel: bLabel,
+          customLabel: "",
+          studentIds: assignedStudentIds,
+          studentCount: assignedStudentCount,
+          weeklyRotation: isSplit ? weeklyRotation : false,
+          rotationPattern: isSplit && weeklyRotation ? rotationPattern.join(",") : null,
+        });
+      }
     }
 
-    const subject = planner.subjects.find((s) => String(s.id) === form.subjectId);
-    if (!subject || !faculty) {
-      setError("Subject and Faculty are required");
-      return;
+    // Check for duplicate faculty within the same slot
+    const assignedFacs = new Set<string>();
+    for (const item of newItems) {
+      if (item.hrmsEmployeeId) {
+        if (assignedFacs.has(item.hrmsEmployeeId)) {
+          setError(
+            `Faculty "${item.facultyName}" cannot be assigned multiple times in the same slot. Please choose another faculty for parallel batches.`,
+          );
+          return;
+        }
+        assignedFacs.add(item.hrmsEmployeeId);
+      }
     }
+
+    // Check for duplicate batch labels if multi-allocation
+    if (newItems.length > 1) {
+      const seenBatches = new Set<string>();
+      for (const item of newItems) {
+        const bl = item.batchLabel.trim().toLowerCase();
+        if (bl) {
+          if (seenBatches.has(bl)) {
+            setError(
+              `Duplicate batch label "${item.batchLabel}". Please specify unique batch labels (e.g., Batch 1, Batch 2) for parallel periods.`,
+            );
+            return;
+          }
+          seenBatches.add(bl);
+        }
+      }
+    }
+
     setAssignments((prev) => {
       const next = prev.filter(
         (a) => !(a.dayOfWeek === dayCode && a.timingSlotId === selected.slotId),
       );
-      next.push({
-        dayOfWeek: dayCode,
-        timingSlotId: selected.slotId,
-        subjectId: subject.id,
-        subjectCode: subject.code,
-        subjectName: subject.name,
-        subjectTypeSnapshot: subject.type ?? null,
-        entryType: form.entryType,
-        hrmsEmployeeId: faculty.hrmsEmployeeId,
-        facultyName: faculty.name,
-        roomLabel: form.roomLabel.trim(),
-        customLabel: "",
-      });
+      next.push(...newItems);
       return next;
     });
+
     setSelected(null);
     setError(null);
   };
@@ -469,16 +1568,6 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
         (a) => !(a.dayOfWeek === dayCode && a.timingSlotId === selected.slotId),
       ),
     );
-    setForm({
-      mode: "subject",
-      subjectId: "",
-      customLabel: "",
-      hrmsEmployeeId: "",
-      roomLabel: "",
-      entryType: "theory",
-    });
-    setFacultySearch("");
-    setFacultyOpen(false);
     setSelected(null);
     setError(null);
   };
@@ -502,7 +1591,17 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
         hrmsEmployeeId: a.hrmsEmployeeId || null,
         facultyName: a.facultyName || null,
         roomLabel: a.roomLabel || null,
+        batchLabel: a.batchLabel || null,
         customLabel: a.customLabel || null,
+        studentIds: a.studentIds && a.studentIds.length > 0 ? a.studentIds : null,
+        studentCount:
+          typeof a.studentCount === "number"
+            ? a.studentCount
+            : Array.isArray(a.studentIds) && a.studentIds.length > 0
+              ? a.studentIds.length
+              : null,
+        weeklyRotation: Boolean(a.weeklyRotation),
+        rotationPattern: a.rotationPattern ?? null,
       })),
     };
   };
@@ -617,59 +1716,6 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     return daySlots.find((s) => s.id === selected.slotId) ?? null;
   }, [selected, planner]);
 
-  const filteredFaculty = useMemo(() => {
-    const list = planner?.faculty ?? [];
-    const q = facultySearch.trim().toLowerCase();
-    if (q.length < 2) return [];
-    const digitsOnly = q.replace(/\D/g, "");
-
-    return list.filter((f) => {
-      const name = (f.name ?? "").toLowerCase();
-      const id = (f.hrmsEmployeeId ?? "").toLowerCase();
-      const idDigits = (f.hrmsEmployeeId ?? "").replace(/\D/g, "");
-      const dept = (f.department ?? "").toLowerCase();
-      const div = (f.division ?? "").toLowerCase();
-      const desig = (f.designation ?? "").toLowerCase();
-      const grp = ((f as { employeeGroup?: string }).employeeGroup ?? "").toLowerCase();
-
-      return (
-        name.includes(q) ||
-        id.includes(q) ||
-        (digitsOnly.length > 0 && idDigits.includes(digitsOnly)) ||
-        dept.includes(q) ||
-        div.includes(q) ||
-        desig.includes(q) ||
-        grp.includes(q)
-      );
-    });
-  }, [planner?.faculty, facultySearch]);
-
-  const visibleFaculty = useMemo(
-    () => filteredFaculty.slice(0, 6),
-    [filteredFaculty],
-  );
-
-  const selectedFaculty = useMemo(() => {
-    if (!form.hrmsEmployeeId || !planner) return null;
-    return (
-      planner.faculty.find((f) => f.hrmsEmployeeId === form.hrmsEmployeeId) ?? null
-    );
-  }, [form.hrmsEmployeeId, planner]);
-
-  const facultyAutoMatched = useMemo(() => {
-    if (!selected || form.mode !== "subject" || !form.subjectId || !form.hrmsEmployeeId) {
-      return false;
-    }
-    const dayCode = DAY_LABEL_TO_CODE[selected.day] ?? selected.day;
-    const inferred = resolveFacultyForSubject(
-      assignments,
-      Number(form.subjectId),
-      form.entryType,
-      { dayOfWeek: dayCode, timingSlotId: selected.slotId },
-    );
-    return inferred === form.hrmsEmployeeId;
-  }, [assignments, form.entryType, form.hrmsEmployeeId, form.mode, form.subjectId, selected]);
-
   const uniqueAllocations = useMemo(() => {
     if (!planner?.days?.length) return [];
     const map = new Map<string, {
@@ -677,7 +1723,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
       subjectName: string;
       facultyName: string;
       roomLabel: string;
+      batchLabel: string;
       customLabel: string;
+      weeklyRotation: boolean;
+      rotationPattern?: string | null;
     }>();
 
     for (const day of planner.days) {
@@ -686,54 +1735,100 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
         if (isNonClassTimingSlot(slot)) continue;
         const cell = planner.grid[day]?.[slot.id];
         const dayCode = DAY_LABEL_TO_CODE[day] ?? day;
-        const local = assignmentMap.get(`${dayCode}:${slot.id}`);
+        const locals = assignmentsBySlot.get(`${dayCode}:${slot.id}`) ?? [];
 
-        if (local) {
-          if (local.customLabel) {
-            const key = `custom:${local.customLabel.trim().toLowerCase()}`;
-            if (!map.has(key)) {
-              map.set(key, {
-                subjectCode: "—",
-                subjectName: local.customLabel,
-                facultyName: local.facultyName || "—",
-                roomLabel: local.roomLabel || "—",
-                customLabel: local.customLabel,
-              });
+        if (locals.length > 0) {
+          for (const local of locals) {
+            if (local.customLabel) {
+              const key = `custom:${local.customLabel.trim().toLowerCase()}:${local.batchLabel.trim().toLowerCase()}`;
+              if (!map.has(key)) {
+                map.set(key, {
+                  subjectCode: "—",
+                  subjectName: local.customLabel,
+                  facultyName: local.facultyName || "—",
+                  roomLabel: local.roomLabel || "—",
+                  batchLabel: local.batchLabel || "",
+                  customLabel: local.customLabel,
+                  weeklyRotation: Boolean(local.weeklyRotation),
+                  rotationPattern: local.rotationPattern ?? null,
+                });
+              }
+            } else if (local.subjectName || local.subjectCode) {
+              const key = `${local.subjectCode || local.subjectId}:${local.facultyName || ""}:${local.batchLabel.trim().toLowerCase()}`;
+              if (!map.has(key)) {
+                map.set(key, {
+                  subjectCode: local.subjectCode || "—",
+                  subjectName: local.subjectName || "Subject",
+                  facultyName: local.facultyName || "Unassigned",
+                  roomLabel: local.roomLabel || "—",
+                  batchLabel: local.batchLabel || "",
+                  customLabel: "",
+                  weeklyRotation: Boolean(local.weeklyRotation),
+                  rotationPattern: local.rotationPattern ?? null,
+                });
+              }
             }
-          } else if (local.subjectName || local.subjectCode) {
-            const key = `${local.subjectCode || local.subjectId}:${local.facultyName || ""}`;
-            if (!map.has(key)) {
-              map.set(key, {
-                subjectCode: local.subjectCode || "—",
-                subjectName: local.subjectName || "Subject",
-                facultyName: local.facultyName || "Unassigned",
-                roomLabel: local.roomLabel || "—",
-                customLabel: "",
-              });
+          }
+        } else if (cell?.entries?.length) {
+          for (const entry of cell.entries) {
+            if (entry.customLabel) {
+              const key = `custom:${entry.customLabel.trim().toLowerCase()}:${(entry.batchLabel ?? "").trim().toLowerCase()}`;
+              if (!map.has(key)) {
+                map.set(key, {
+                  subjectCode: "—",
+                  subjectName: entry.customLabel,
+                  facultyName: entry.facultyName || "—",
+                  roomLabel: entry.roomLabel || "—",
+                  batchLabel: entry.batchLabel || "",
+                  customLabel: entry.customLabel,
+                  weeklyRotation: Boolean(entry.weeklyRotation),
+                  rotationPattern: entry.rotationPattern ?? null,
+                });
+              }
+            } else if (entry.subjectName || entry.subjectCode) {
+              const key = `${entry.subjectCode || entry.subjectId}:${entry.facultyName || ""}:${(entry.batchLabel ?? "").trim().toLowerCase()}`;
+              if (!map.has(key)) {
+                map.set(key, {
+                  subjectCode: entry.subjectCode || "—",
+                  subjectName: entry.subjectName || "Subject",
+                  facultyName: entry.facultyName || "Unassigned",
+                  roomLabel: entry.roomLabel || "—",
+                  batchLabel: entry.batchLabel || "",
+                  customLabel: "",
+                  weeklyRotation: Boolean(entry.weeklyRotation),
+                  rotationPattern: entry.rotationPattern ?? null,
+                });
+              }
             }
           }
         } else if (cell?.entry) {
           const entry = cell.entry;
           if (entry.customLabel) {
-            const key = `custom:${entry.customLabel.trim().toLowerCase()}`;
+            const key = `custom:${entry.customLabel.trim().toLowerCase()}:${(entry.batchLabel ?? "").trim().toLowerCase()}`;
             if (!map.has(key)) {
               map.set(key, {
                 subjectCode: "—",
                 subjectName: entry.customLabel,
                 facultyName: entry.facultyName || "—",
                 roomLabel: entry.roomLabel || "—",
+                batchLabel: entry.batchLabel || "",
                 customLabel: entry.customLabel,
+                weeklyRotation: Boolean(entry.weeklyRotation),
+                rotationPattern: entry.rotationPattern ?? null,
               });
             }
           } else if (entry.subjectName || entry.subjectCode) {
-            const key = `${entry.subjectCode || entry.subjectId}:${entry.facultyName || ""}`;
+            const key = `${entry.subjectCode || entry.subjectId}:${entry.facultyName || ""}:${(entry.batchLabel ?? "").trim().toLowerCase()}`;
             if (!map.has(key)) {
               map.set(key, {
                 subjectCode: entry.subjectCode || "—",
                 subjectName: entry.subjectName || "Subject",
                 facultyName: entry.facultyName || "Unassigned",
                 roomLabel: entry.roomLabel || "—",
+                batchLabel: entry.batchLabel || "",
                 customLabel: "",
+                weeklyRotation: Boolean(entry.weeklyRotation),
+                rotationPattern: entry.rotationPattern ?? null,
               });
             }
           }
@@ -742,7 +1837,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     }
 
     return Array.from(map.values()).sort((a, b) => a.subjectName.localeCompare(b.subjectName));
-  }, [planner, assignmentMap]);
+  }, [planner, assignmentsBySlot]);
 
   const fieldClass =
     "h-10 w-full rounded-lg border border-border bg-white px-3 text-sm text-navy-900 outline-none transition-colors focus:border-navy-700 focus:ring-2 focus:ring-navy-900/10";
@@ -937,9 +2032,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                           );
                         }
                         const cell = planner.grid[day]?.[slot.id];
-                        const local = assignmentMap.get(`${dayCode}:${slot.id}`);
-                        const subject =
-                          local && !local.customLabel ? subjectCellDisplay(local) : null;
+                        const locals = assignmentsBySlot.get(`${dayCode}:${slot.id}`) ?? [];
                         const isBreak = isNonClassTimingSlot(slot);
 
                         if (isBreak) {
@@ -960,6 +2053,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                           );
                         }
 
+                        const isMulti = locals.length > 1 || (locals.length === 1 && Boolean(locals[0].batchLabel));
+                        const hasAllocations = locals.length > 0;
+                        const hasCustomSpecial = locals.some((l) => Boolean(l.customLabel));
+
                         return (
                           <td key={`${day}-${slot.id}`} className="border-b border-r last:border-r-0 border-border p-1 print:p-0.5 text-center">
                             <button
@@ -973,6 +2070,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                                   startTime: slot.startTime,
                                   endTime: slot.endTime,
                                   entry: cell?.entry ?? null,
+                                  entries: cell?.entries,
                                 })
                               }
                               className={cn(
@@ -980,63 +2078,124 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                                 selected?.day === day && selected.slotId === slot.id
                                   ? "border-navy-800 ring-1 ring-navy-800"
                                   : "border-border hover:border-slate-300",
-                                local?.customLabel
+                                hasCustomSpecial
                                   ? specialPeriodCellClass()
-                                  : local
+                                  : hasAllocations
                                     ? classPeriodCellClass()
                                     : emptyPeriodCellClass(),
                               )}
                             >
-                              {local ? (
-                                <div className="flex flex-col justify-between print:justify-center items-stretch print:items-center h-full w-full space-y-0.5 text-left print:text-center">
-                                  <div className="w-full text-left print:text-center">
-                                    {local.customLabel ? (
-                                      <p className="font-bold text-xs text-navy-900 line-clamp-2 leading-tight print:text-[9.5px] print:leading-tight text-left print:text-center">
-                                        {local.customLabel}
-                                      </p>
-                                    ) : subject ? (
-                                      <>
-                                        <p
-                                          className="line-clamp-2 font-bold text-xs leading-tight text-navy-900 print:text-[9.5px] print:leading-tight text-left print:text-center"
-                                          title={subject.title}
-                                        >
-                                          {subject.title}
-                                        </p>
-                                        {subject.subtitle ? (
-                                          <p className="text-[10px] font-mono text-slate-500 mt-0.5 print:hidden">
-                                            {subject.subtitle}
-                                          </p>
-                                        ) : null}
-                                      </>
-                                    ) : null}
-                                  </div>
-                                  <div className="mt-auto print:mt-0 space-y-0 pt-0.5 print:pt-0 text-left print:text-center w-full">
-                                    {local.customLabel ? (
-                                      <p className="text-[10px] font-medium text-violet-700 print:hidden">
-                                        Free / Special
-                                      </p>
-                                    ) : null}
-                                    {local.facultyName ? (
-                                      <p
-                                        className="text-[10px] font-medium text-slate-600 truncate print:hidden"
-                                        title={local.facultyName}
-                                      >
-                                        {local.facultyName}
-                                      </p>
-                                    ) : null}
-                                    {local.roomLabel ? (
-                                      <p className="text-[9px] font-medium text-slate-500 print:hidden">
-                                        Room {local.roomLabel}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ) : (
+                              {!hasAllocations ? (
                                 <div className="flex items-center justify-center h-full w-full min-h-[60px] print:min-h-0 text-center">
                                   <p className="text-xs font-medium text-slate-400 print:hidden">
                                     Free / Assign
                                   </p>
                                 </div>
+                              ) : isMulti ? (
+                                <div className="flex flex-col justify-between items-stretch h-full w-full space-y-1 text-left print:text-center">
+                                  <div className="flex items-center justify-between gap-1 border-b border-navy-200/50 pb-0.5 print:hidden">
+                                    <span className="inline-flex items-center rounded bg-indigo-50 border border-indigo-200 px-1 py-0.2 text-[9px] font-bold text-indigo-700">
+                                      Parallel ({locals.length})
+                                    </span>
+                                    {locals.some((l) => l.weeklyRotation) ? (
+                                      <span
+                                        className="inline-flex items-center gap-0.5 rounded bg-purple-100 border border-purple-300 px-1 py-0.2 text-[8.5px] font-bold text-purple-800"
+                                        title={`4-Week Month Rotation: Batches shift subjects across the 4 weeks [${locals.find((l) => l.rotationPattern)?.rotationPattern || "1,2,1,2"}]`}
+                                      >
+                                        ⟳ 4W Rotates
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="space-y-1.5 divide-y divide-slate-200/60 overflow-hidden flex-1">
+                                    {locals.map((item, idx) => {
+                                      const subj = !item.customLabel ? subjectCellDisplay(item) : null;
+                                      return (
+                                        <div key={`${item.subjectId || item.customLabel}-${idx}`} className={cn("text-left print:text-center", idx > 0 ? "pt-1" : "")}>
+                                          <div className="flex items-center justify-between gap-1">
+                                            <div className="flex items-center gap-1 min-w-0">
+                                              {item.batchLabel ? (
+                                                <span className="shrink-0 rounded bg-navy-100 text-navy-800 font-bold px-1 py-0.2 text-[8.5px] uppercase">
+                                                  {item.batchLabel}
+                                                </span>
+                                              ) : null}
+                                              <p className="font-bold text-[11px] leading-tight text-navy-900 truncate" title={item.customLabel || subj?.title}>
+                                                {item.customLabel || subj?.subtitle || subj?.title}
+                                              </p>
+                                            </div>
+                                            {typeof item.studentCount === "number" && item.studentCount > 0 ? (
+                                              <span
+                                                className="shrink-0 text-[8.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1 py-0.2 rounded print:hidden"
+                                                title={`${item.studentCount} students`}
+                                              >
+                                                {item.studentCount}s
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          {item.facultyName ? (
+                                            <p className="text-[9.5px] font-medium text-slate-600 truncate mt-0.5 print:hidden" title={item.facultyName}>
+                                              {item.facultyName}
+                                            </p>
+                                          ) : null}
+                                          {item.roomLabel ? (
+                                            <p className="text-[8.5px] text-slate-400 truncate print:hidden">
+                                              {item.roomLabel}
+                                            </p>
+                                          ) : null}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : (
+                                (() => {
+                                  const local = locals[0];
+                                  const subject = local && !local.customLabel ? subjectCellDisplay(local) : null;
+                                  return (
+                                    <div className="flex flex-col justify-between print:justify-center items-stretch print:items-center h-full w-full space-y-0.5 text-left print:text-center">
+                                      <div className="w-full text-left print:text-center">
+                                        {local.customLabel ? (
+                                          <p className="font-bold text-xs text-navy-900 line-clamp-2 leading-tight print:text-[9.5px] print:leading-tight text-left print:text-center">
+                                            {local.customLabel}
+                                          </p>
+                                        ) : subject ? (
+                                          <>
+                                            <p
+                                              className="line-clamp-2 font-bold text-xs leading-tight text-navy-900 print:text-[9.5px] print:leading-tight text-left print:text-center"
+                                              title={subject.title}
+                                            >
+                                              {subject.title}
+                                            </p>
+                                            {subject.subtitle ? (
+                                              <p className="text-[10px] font-mono text-slate-500 mt-0.5 print:hidden">
+                                                {subject.subtitle}
+                                              </p>
+                                            ) : null}
+                                          </>
+                                        ) : null}
+                                      </div>
+                                      <div className="mt-auto print:mt-0 space-y-0 pt-0.5 print:pt-0 text-left print:text-center w-full">
+                                        {local.customLabel ? (
+                                          <p className="text-[10px] font-medium text-violet-700 print:hidden">
+                                            Free / Special
+                                          </p>
+                                        ) : null}
+                                        {local.facultyName ? (
+                                          <p
+                                            className="text-[10px] font-medium text-slate-600 truncate print:hidden"
+                                            title={local.facultyName}
+                                          >
+                                            {local.facultyName}
+                                          </p>
+                                        ) : null}
+                                        {local.roomLabel ? (
+                                          <p className="text-[9px] font-medium text-slate-500 print:hidden">
+                                            Room {local.roomLabel}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  );
+                                })()
                               )}
                             </button>
                           </td>
@@ -1065,6 +2224,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                   <thead>
                     <tr className="bg-slate-100/90 text-slate-700 font-semibold border-b border-border text-[11px] uppercase tracking-wide">
                       <th className="py-2 px-3 print:py-1 print:px-2 w-10 text-center print:text-[10px] border-r border-border">#</th>
+                      <th className="py-2 px-3 print:py-1 print:px-2 w-28 print:text-[10px] border-r border-border">Batch / Group</th>
                       <th className="py-2 px-3 print:py-1 print:px-2 w-32 print:text-[10px] border-r border-border">Subject Code</th>
                       <th className="py-2 px-3 print:py-1 print:px-2 print:text-[10px] border-r border-border">Subject Name</th>
                       <th className="py-2 px-3 print:py-1 print:px-2 print:text-[10px] border-r border-border">Faculty Name</th>
@@ -1073,8 +2233,27 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                   </thead>
                   <tbody className="divide-y divide-border">
                     {uniqueAllocations.map((alloc, idx) => (
-                      <tr key={`${alloc.subjectCode}-${alloc.subjectName}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={`${alloc.subjectCode}-${alloc.subjectName}-${alloc.batchLabel}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2 px-3 print:py-1 print:px-2 text-center font-bold text-slate-400 print:text-[10px] border-r border-border">{idx + 1}</td>
+                        <td className="py-2 px-3 print:py-1 print:px-2 print:text-[10px] border-r border-border">
+                          {alloc.batchLabel ? (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="inline-block bg-navy-50 text-navy-800 border border-navy-200 font-semibold rounded px-1.5 py-0.5 text-[10.5px]">
+                                {alloc.batchLabel}
+                              </span>
+                              {alloc.weeklyRotation ? (
+                                <span
+                                  className="inline-block bg-purple-50 text-purple-700 border border-purple-200 font-bold rounded px-1 py-0.2 text-[9px]"
+                                  title={`Batches rotate across the 4 weeks of the month: [${alloc.rotationPattern || "1,2,1,2"}]`}
+                                >
+                                  ⟳ 4W Rotation
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[10.5px] italic">Entire Class</span>
+                          )}
+                        </td>
                         <td className="py-2 px-3 print:py-1 print:px-2 font-mono font-bold text-navy-900 print:text-[10px] border-r border-border">
                           <span className="inline-block bg-slate-100 rounded px-1.5 py-0.5 text-[11px] print:bg-transparent print:p-0 print:text-[10px]">
                             {alloc.subjectCode}
@@ -1105,7 +2284,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="assign-class-title"
-                className="relative z-10 flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+                className={cn(
+                  "relative z-10 flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl transition-all",
+                  isSplit ? "max-w-5xl" : "max-w-2xl",
+                )}
               >
                 <div className="border-b border-border px-5 py-3.5">
                   <div className="flex items-start justify-between gap-3">
@@ -1134,307 +2316,263 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                   </div>
                 </div>
 
-                <div className="space-y-3 px-5 py-4">
-                  <div className="flex gap-2 rounded-lg border border-border bg-slate-50 p-1">
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                        form.mode === "subject"
-                          ? "bg-white text-navy-900 shadow-sm"
-                          : "text-slate-600 hover:text-navy-900",
-                      )}
-                      onClick={() =>
-                        setForm((f) => ({
-                          ...f,
-                          mode: "subject",
-                          customLabel: "",
-                        }))
-                      }
-                    >
-                      Subject class
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                        form.mode === "special"
-                          ? "bg-white text-navy-900 shadow-sm"
-                          : "text-slate-600 hover:text-navy-900",
-                      )}
-                      onClick={() =>
-                        setForm((f) => ({
-                          ...f,
-                          mode: "special",
-                          subjectId: "",
-                          entryType: "other",
-                        }))
-                      }
-                    >
-                      Free / Special
-                    </button>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {form.mode === "special" ? (
-                      <label className="block text-sm sm:col-span-2">
-                        <span className="mb-1.5 block font-medium text-slate-700">
-                          Period name
-                        </span>
-                        <input
-                          className={fieldClass}
-                          placeholder="e.g. CRT, Games, Library"
-                          value={form.customLabel}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, customLabel: e.target.value }))
-                          }
-                        />
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {SPECIAL_PERIOD_SUGGESTIONS.map((label) => (
-                            <button
-                              key={label}
-                              type="button"
-                              className={cn(
-                                "rounded-md border px-2 py-1 text-xs transition-colors",
-                                form.customLabel.trim().toLowerCase() ===
-                                  label.toLowerCase()
-                                  ? "border-navy-800 bg-navy-900 text-white"
-                                  : "border-border bg-white text-slate-600 hover:border-slate-300",
-                              )}
-                              onClick={() =>
-                                setForm((f) => ({ ...f, customLabel: label }))
-                              }
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </label>
-                    ) : (
-                      <label className="block text-sm sm:col-span-2">
-                        <span className="mb-1.5 block font-medium text-slate-700">
-                          Subject
-                        </span>
-                        <select
-                          className={fieldClass}
-                          value={form.subjectId}
-                          onChange={(e) => {
-                            const subjectId = e.target.value;
-                            const subject = planner.subjects.find(
-                              (s) => String(s.id) === subjectId,
-                            );
-                            const entryType = subject
-                              ? mapEmsTypeToEntryType(subject.type)
-                              : form.entryType;
-                            const dayCode = selected
-                              ? DAY_LABEL_TO_CODE[selected.day] ?? selected.day
-                              : "";
-                            const inferredFaculty = subjectId
-                              ? resolveFacultyForSubject(
-                                  assignments,
-                                  Number(subjectId),
-                                  entryType,
-                                  selected
-                                    ? {
-                                        dayOfWeek: dayCode,
-                                        timingSlotId: selected.slotId,
-                                      }
-                                    : undefined,
-                                )
-                              : "";
-                            setForm((f) => ({
-                              ...f,
-                              subjectId,
-                              entryType,
-                              hrmsEmployeeId: inferredFaculty,
-                            }));
-                            if (inferredFaculty) {
-                              setFacultySearch("");
-                              setFacultyOpen(false);
-                            }
-                          }}
-                        >
-                          <option value="">Select subject</option>
-                          {planner.subjects.map((subject) => (
-                            <option key={subject.id} value={subject.id}>
-                              {subject.code} — {subject.name}
-                              {subject.type ? ` (${subject.type})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-
-                    <label className="block text-sm">
-                      <span className="mb-1.5 block font-medium text-slate-700">
-                        Room / Lab{" "}
-                        <span className="font-normal text-slate-400">(optional)</span>
-                      </span>
-                      <input
-                        className={fieldClass}
-                        placeholder="e.g. Lab-1, A-204"
-                        value={form.roomLabel}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, roomLabel: e.target.value }))
-                        }
-                      />
-                    </label>
-
-                    {form.mode === "subject" ? (
-                      <label className="block text-sm">
-                        <span className="mb-1.5 block font-medium text-slate-700">
-                          Class Type
-                        </span>
-                        <select
-                          className={fieldClass}
-                          value={form.entryType}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              entryType: e.target.value as "theory" | "lab" | "other",
-                            }))
-                          }
-                        >
-                          <option value="theory">Theory</option>
-                          <option value="lab">Lab</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </label>
-                    ) : (
-                      <div className="block text-sm">
-                        <span className="mb-1.5 block font-medium text-slate-700">
-                          Type
-                        </span>
-                        <div className={cn(fieldClass, "flex items-center text-slate-600")}>
-                          Free / Special period
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="block text-sm">
-                    <span className="mb-1.5 block font-medium text-slate-700">
-                      Faculty{" "}
-                      {form.mode === "special" ? (
-                        <span className="font-normal text-slate-400">(optional)</span>
-                      ) : null}
+                {/* Split slot checkbox banner */}
+                <div className="flex items-center justify-between border-b border-border bg-slate-50/70 px-5 py-3">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isSplit}
+                      onChange={(e) => handleToggleSplit(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-navy-900 focus:ring-navy-900"
+                    />
+                    <span className="text-sm font-bold text-navy-900">
+                      Split this slot into parallel batches (e.g. Batch 1 / Batch 2 for practicals or electives)
                     </span>
+                  </label>
+                  {isSplit ? (
+                    <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
+                      Split Mode Active
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500 font-medium">
+                      Single Period
+                    </span>
+                  )}
+                </div>
 
-                    {selectedFaculty && !facultyOpen ? (
-                      <div className="flex items-start justify-between gap-2 rounded-lg border border-navy-200 bg-navy-50/60 px-3 py-2.5">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-navy-900">{selectedFaculty.name}</p>
-                          <FacultyPickerMeta faculty={selectedFaculty} />
-                          {facultyAutoMatched ? (
-                            <p className="mt-1 text-xs text-emerald-700">
-                              Auto-filled from another period for this subject.
-                            </p>
-                          ) : null}
-                        </div>
-                        <button
-                          type="button"
-                          className="shrink-0 text-xs font-medium text-navy-800 hover:underline"
-                          onClick={() => {
-                            setForm((f) => ({ ...f, hrmsEmployeeId: "" }));
-                            setFacultySearch("");
-                            setFacultyOpen(true);
-                          }}
-                        >
-                          Change
-                        </button>
+                <div className="max-h-[75vh] overflow-y-auto space-y-4 px-5 py-4">
+                  {isSplit ? (
+                    <>
+                      {/* Side-by-side batch cards */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {slotAllocations.map((alloc, idx) => {
+                          const bLabel = alloc.batchLabel.trim() || `Batch ${idx + 1}`;
+                          const count = Object.values(studentBatchMap).filter((b) => b === bLabel).length;
+                          return (
+                            <AllocationEditorCard
+                              key={alloc.key}
+                              alloc={alloc}
+                              index={idx}
+                              total={slotAllocations.length}
+                              isSplit={true}
+                              studentCount={count}
+                              planner={planner}
+                              assignments={assignments}
+                              dayCode={DAY_LABEL_TO_CODE[selected.day] ?? selected.day}
+                              slotId={selected.slotId}
+                              fieldClass={fieldClass}
+                              onChange={(patch) => updateAllocation(idx, patch)}
+                              onRemove={() => removeAllocation(idx)}
+                            />
+                          );
+                        })}
                       </div>
-                    ) : (
-                      <div className="rounded-lg border border-border bg-white">
-                        <div className="p-2">
-                          <input
-                            type="search"
-                            autoFocus={!selectedFaculty && form.mode === "subject"}
-                            placeholder="Type at least 2 letters to search faculty…"
-                            className="h-9 w-full rounded-md border border-border bg-slate-50 px-3 text-sm outline-none focus:border-navy-700 focus:bg-white focus:ring-2 focus:ring-navy-900/10"
-                            value={facultySearch}
-                            onChange={(e) => {
-                              setFacultySearch(e.target.value);
-                              setFacultyOpen(true);
-                            }}
-                          />
+
+                      {/* Monthly 4-Week Batch Rotation & Selection Studio */}
+                      <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/70 p-4 shadow-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={weeklyRotation}
+                                onChange={(e) => setWeeklyRotation(e.target.checked)}
+                                className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span className="text-sm font-bold text-navy-900 flex items-center gap-1.5">
+                                <span>Monthly 4-Week Batch Rotation (Automatic Weekly Shift)</span>
+                              </span>
+                            </label>
+                            <p className="text-xs text-slate-600 pl-6.5">
+                              Configure how Batch 1 and Batch 2 rotate across the 4 weeks of the month (W1: Days 1–7, W2: Days 8–14, W3: Days 15–21, W4: Days 22–31). Generated class sessions will shift students automatically.
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "self-start sm:self-center shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold shadow-xs",
+                              weeklyRotation
+                                ? "bg-indigo-600 text-white"
+                                : "bg-slate-200 text-slate-600",
+                            )}
+                          >
+                            {weeklyRotation ? "Rotation Active" : "Rotation Off"}
+                          </span>
                         </div>
 
-                        {facultySearch.trim().length < 2 ? (
-                          <p className="border-t border-border px-3 py-3 text-xs text-slate-500">
-                            Search by name, emp no, department, division, or designation.
-                            {form.mode === "special"
-                              ? " Faculty is optional for free/special periods."
-                              : ""}
-                          </p>
-                        ) : filteredFaculty.length === 0 ? (
-                          <p className="border-t border-border px-3 py-3 text-sm text-slate-500">
-                            No matching staff
-                          </p>
-                        ) : (
-                          <div className="max-h-72 overflow-y-auto border-t border-border p-2">
-                            <div className="grid grid-cols-1 gap-1.5">
-                              {visibleFaculty.map((faculty) => {
-                                const active =
-                                  form.hrmsEmployeeId === faculty.hrmsEmployeeId;
+                        {weeklyRotation ? (
+                          <div className="mt-3.5 space-y-3 pt-3 border-t border-indigo-100">
+                            {/* 4 Interactive Week Cards */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                              {[
+                                { weekNum: 1, title: "Week 1", days: "Days 1–7" },
+                                { weekNum: 2, title: "Week 2", days: "Days 8–14" },
+                                { weekNum: 3, title: "Week 3", days: "Days 15–21" },
+                                { weekNum: 4, title: "Week 4", days: "Days 22–31" },
+                              ].map((w, idx) => {
+                                const isShifted = (rotationPattern[idx] ?? 1) === 2;
+
+                                const getSubjLabel = (allocIdx: number, fallback: string) => {
+                                  const alloc = slotAllocations[allocIdx];
+                                  if (!alloc) return fallback;
+                                  if (alloc.mode === "special") return alloc.customLabel || fallback;
+                                  const s = planner.subjects.find((sub) => String(sub.id) === alloc.subjectId);
+                                  return s ? s.code || s.name : fallback;
+                                };
+
+                                const b1Subj = isShifted ? getSubjLabel(1, "Subject 2") : getSubjLabel(0, "Subject 1");
+                                const b2Subj = isShifted ? getSubjLabel(0, "Subject 1") : getSubjLabel(1, "Subject 2");
+
                                 return (
-                                  <button
-                                    key={faculty.hrmsEmployeeId}
-                                    type="button"
+                                  <div
+                                    key={w.weekNum}
                                     className={cn(
-                                      "flex w-full flex-col items-start rounded-md border px-3 py-2.5 text-left transition-colors",
-                                      active
-                                        ? "border-navy-900 bg-navy-900 text-white"
-                                        : "border-border/80 hover:border-slate-300 hover:bg-slate-50",
+                                      "rounded-lg border p-2.5 space-y-2 transition-all shadow-xs",
+                                      isShifted
+                                        ? "border-purple-300 bg-purple-50/40"
+                                        : "border-indigo-200 bg-white",
                                     )}
-                                    onClick={() => {
-                                      setForm((f) => ({
-                                        ...f,
-                                        hrmsEmployeeId: faculty.hrmsEmployeeId,
-                                      }));
-                                      setFacultySearch("");
-                                      setFacultyOpen(false);
-                                    }}
                                   >
-                                    <span
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                      <div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span
+                                            className={cn(
+                                              "h-2 w-2 rounded-full",
+                                              isShifted ? "bg-purple-600" : "bg-indigo-600",
+                                            )}
+                                          />
+                                          <span className="font-bold text-navy-900 text-xs">{w.title}</span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-medium block">
+                                          {w.days}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={cn(
+                                          "text-[9.5px] uppercase font-bold px-1.5 py-0.5 rounded shadow-xs",
+                                          isShifted
+                                            ? "text-purple-700 bg-purple-100 border border-purple-200"
+                                            : "text-indigo-700 bg-indigo-50 border border-indigo-200",
+                                        )}
+                                      >
+                                        {isShifted ? "Shifted ⇄" : "Standard"}
+                                      </span>
+                                    </div>
+
+                                    <div className="space-y-1.5 text-[11px]">
+                                      <div className="flex items-center justify-between gap-1.5 bg-white/80 rounded px-1.5 py-1 border border-slate-100">
+                                        <span className="font-bold text-indigo-700 shrink-0">Batch 1:</span>
+                                        <span className="font-semibold text-slate-800 truncate text-right" title={b1Subj}>
+                                          {b1Subj}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-1.5 bg-white/80 rounded px-1.5 py-1 border border-slate-100">
+                                        <span className="font-bold text-emerald-700 shrink-0">Batch 2:</span>
+                                        <span className="font-semibold text-slate-800 truncate text-right" title={b2Subj}>
+                                          {b2Subj}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRotationPattern((prev) => {
+                                          const next = [...prev];
+                                          while (next.length < 4) next.push(1);
+                                          next[idx] = next[idx] === 1 ? 2 : 1;
+                                          return next;
+                                        });
+                                      }}
                                       className={cn(
-                                        "text-sm font-medium leading-snug",
-                                        active ? "text-white" : "text-navy-900",
+                                        "w-full py-1 px-2 rounded text-[10.5px] font-semibold transition-colors cursor-pointer border flex items-center justify-center gap-1",
+                                        isShifted
+                                          ? "bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200"
+                                          : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100",
                                       )}
                                     >
-                                      {faculty.name}
-                                    </span>
-                                    <FacultyPickerMeta faculty={faculty} active={active} />
-                                  </button>
+                                      <span>{isShifted ? "↩ Set Standard" : "⇄ Shift Batches"}</span>
+                                    </button>
+                                  </div>
                                 );
                               })}
                             </div>
-                            {filteredFaculty.length > 6 ? (
-                              <p className="mt-2 text-xs text-slate-500">
-                                Showing 6 of {filteredFaculty.length} — type more to narrow
-                              </p>
-                            ) : (
-                              <p className="mt-2 text-xs text-slate-500">
-                                {filteredFaculty.length} match
-                                {filteredFaculty.length === 1 ? "" : "es"}
-                              </p>
-                            )}
                           </div>
-                        )}
+                        ) : null}
                       </div>
-                    )}
-                  </div>
+
+                      {/* Student Batch Classifier & Checklist */}
+                      <StudentBatchClassifier
+                        students={sectionStudents}
+                        loading={loadingStudents}
+                        allocations={slotAllocations}
+                        studentBatchMap={studentBatchMap}
+                        onAssignStudent={(studentId, batchLabel) => {
+                          setStudentBatchMap((prev) => {
+                            const next = { ...prev };
+                            if (!batchLabel) {
+                              delete next[studentId];
+                            } else {
+                              next[studentId] = batchLabel;
+                            }
+                            return next;
+                          });
+                        }}
+                        onAssignMultiple={(newMap) => {
+                          setStudentBatchMap(newMap);
+                        }}
+                      />
+                    </>
+                  ) : (
+                    /* Single period mode */
+                    <AllocationEditorCard
+                      key={slotAllocations[0]?.key || "single"}
+                      alloc={
+                        slotAllocations[0] || {
+                          key: "single",
+                          mode: "subject",
+                          subjectId: "",
+                          customLabel: "",
+                          hrmsEmployeeId: "",
+                          facultyName: "",
+                          roomLabel: "",
+                          batchLabel: "",
+                          entryType: "theory",
+                          facultySearch: "",
+                          facultyOpen: false,
+                        }
+                      }
+                      index={0}
+                      total={1}
+                      isSplit={false}
+                      studentCount={0}
+                      planner={planner}
+                      assignments={assignments}
+                      dayCode={DAY_LABEL_TO_CODE[selected.day] ?? selected.day}
+                      slotId={selected.slotId}
+                      fieldClass={fieldClass}
+                      onChange={(patch) => updateAllocation(0, patch)}
+                      onRemove={() => {}}
+                    />
+                  )}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 border-t border-border bg-slate-50/80 px-5 py-3">
-                  <Button variant="ghost" onClick={() => setSelected(null)}>
-                    Cancel
-                  </Button>
-                  <Button variant="secondary" onClick={clearLocalAssignment}>
-                    Clear
-                  </Button>
-                  <Button onClick={saveLocalAssignment}>
-                    {form.mode === "special" ? "Save Period" : "Assign"}
-                  </Button>
+                <div className="flex items-center justify-between border-t border-border bg-slate-50/80 px-5 py-3">
+                  <div>
+                    {slotAllocations.length > 0 ? (
+                      <Button variant="secondary" onClick={clearLocalAssignment}>
+                        Clear Slot
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" onClick={() => setSelected(null)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={saveLocalAssignment}>
+                      Save Period
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

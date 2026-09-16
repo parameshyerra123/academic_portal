@@ -83,6 +83,11 @@ type EntryRow = RowDataPacket & {
   entry_type: string;
   faculty_staff_link_id: number | null;
   room_label: string | null;
+  batch_label?: string | null;
+  student_ids?: number[] | string | null;
+  student_count?: number | null;
+  weekly_rotation?: number | boolean | null;
+  rotation_pattern?: string | null;
   custom_label: string | null;
   faculty_name?: string | null;
   faculty_hrms_id?: string | null;
@@ -100,6 +105,16 @@ export type AssignmentInput = {
   hrmsEmployeeId?: string | null;
   facultyName?: string | null;
   roomLabel?: string | null;
+  /** Classification or batch tag (e.g. Batch 1, Batch 2) */
+  batchLabel?: string | null;
+  /** Array of student IDs assigned to this batch */
+  studentIds?: number[] | null;
+  /** Total count of students assigned to this batch */
+  studentCount?: number | null;
+  /** Whether this split slot rotates batches weekly (Batch 1 <-> Batch 2 alternate weeks) */
+  weeklyRotation?: boolean | number | null;
+  /** 4-week monthly rotation pattern: e.g. "1,2,1,2" (W1, W2, W3, W4) */
+  rotationPattern?: string | null;
   /** Label for free/special periods (CRT, Games, Library, etc.) */
   customLabel?: string | null;
 };
@@ -761,6 +776,7 @@ function buildEntrySignatureSet(entries: EntryRow[], slots: TimingSlotRow[]): Se
         entry.subject_id ?? "",
         entry.faculty_staff_link_id ?? "",
         (entry.room_label ?? "").trim(),
+        (entry.batch_label ?? "").trim(),
         (entry.custom_label ?? "").trim(),
         entry.entry_type ?? "",
       ].join("|"),
@@ -788,6 +804,7 @@ function buildAssignmentSignatureSet(
         assignment.subjectId ?? "",
         assignment.facultyStaffLinkId ?? "",
         (assignment.roomLabel ?? "").trim(),
+        (assignment.batchLabel ?? "").trim(),
         customLabel,
         assignment.entryType ?? "",
       ].join("|"),
@@ -844,11 +861,33 @@ function buildGrid(
     slotsByDay[slot.dayLabel].push(slot);
   }
 
-  const entryMap = new Map<string, EntryRow>();
+  const entriesMap = new Map<string, EntryRow[]>();
   for (const entry of entries) {
     const slotId = entry.timing_slot_id ?? entry.period_slot_id;
-    entryMap.set(`${entry.day_of_week}:${slotId}`, entry);
+    const key = `${entry.day_of_week}:${slotId}`;
+    const list = entriesMap.get(key) ?? [];
+    list.push(entry);
+    entriesMap.set(key, list);
   }
+
+  type GridCellEntry = {
+    id: number;
+    subjectId: number | null;
+    subjectCode: string | null;
+    subjectName: string | null;
+    subjectTypeSnapshot: string | null;
+    entryType: string;
+    facultyStaffLinkId: number | null;
+    facultyName: string | null;
+    facultyHrmsId: string | null;
+    roomLabel: string | null;
+    batchLabel: string | null;
+    studentIds: number[] | null;
+    studentCount: number | null;
+    weeklyRotation?: boolean;
+    rotationPattern?: string | null;
+    customLabel: string | null;
+  };
 
   const grid: Record<
     string,
@@ -861,19 +900,8 @@ function buildGrid(
         label: string;
         startTime: string;
         endTime: string;
-        entry: null | {
-          id: number;
-          subjectId: number | null;
-          subjectCode: string | null;
-          subjectName: string | null;
-          subjectTypeSnapshot: string | null;
-          entryType: string;
-          facultyStaffLinkId: number | null;
-          facultyName: string | null;
-          facultyHrmsId: string | null;
-          roomLabel: string | null;
-          customLabel: string | null;
-        };
+        entry: null | GridCellEntry;
+        entries: GridCellEntry[];
       }
     >
   > = {};
@@ -882,7 +910,38 @@ function buildGrid(
     grid[day] = {};
     for (const slot of slotsByDay[day] ?? []) {
       const dayCode = toDayCode(day);
-      const found = entryMap.get(`${dayCode}:${slot.id}`);
+      const foundList = entriesMap.get(`${dayCode}:${slot.id}`) ?? [];
+      const mappedEntries: GridCellEntry[] = foundList.map((found) => {
+        let parsedStudentIds: number[] | null = null;
+        if (Array.isArray(found.student_ids)) {
+          parsedStudentIds = found.student_ids as number[];
+        } else if (typeof found.student_ids === "string" && found.student_ids.trim()) {
+          try {
+            parsedStudentIds = JSON.parse(found.student_ids);
+          } catch {
+            parsedStudentIds = null;
+          }
+        }
+        return {
+          id: found.id,
+          subjectId: found.subject_id,
+          subjectCode: found.subject_code,
+          subjectName: found.subject_name,
+          subjectTypeSnapshot: found.subject_type_snapshot ?? null,
+          entryType: found.entry_type,
+          facultyStaffLinkId: found.faculty_staff_link_id,
+          facultyName: found.faculty_name ?? null,
+          facultyHrmsId: found.faculty_hrms_id ?? null,
+          roomLabel: found.room_label,
+          batchLabel: found.batch_label ?? null,
+          studentIds: parsedStudentIds,
+          studentCount: found.student_count ?? (parsedStudentIds ? parsedStudentIds.length : null),
+          weeklyRotation: Boolean(found.weekly_rotation),
+          rotationPattern: found.rotation_pattern ?? null,
+          customLabel: found.custom_label ?? null,
+        };
+      });
+
       grid[day][slot.id] = {
         slotId: slot.id,
         slotType: slot.slotType,
@@ -890,21 +949,8 @@ function buildGrid(
         label: slot.label,
         startTime: slot.startTime,
         endTime: slot.endTime,
-        entry: found
-          ? {
-              id: found.id,
-              subjectId: found.subject_id,
-              subjectCode: found.subject_code,
-              subjectName: found.subject_name,
-              subjectTypeSnapshot: found.subject_type_snapshot ?? null,
-              entryType: found.entry_type,
-              facultyStaffLinkId: found.faculty_staff_link_id,
-              facultyName: found.faculty_name ?? null,
-              facultyHrmsId: found.faculty_hrms_id ?? null,
-              roomLabel: found.room_label,
-              customLabel: found.custom_label ?? null,
-            }
-          : null,
+        entry: mappedEntries[0] ?? null,
+        entries: mappedEntries,
       };
     }
   }
@@ -1083,6 +1129,7 @@ export async function getTimetablePlanner(filters: TimetablePlannerFilters = {})
       facultyStaffLinkId: e.faculty_staff_link_id,
       facultyName: e.faculty_name,
       roomLabel: e.room_label,
+      batchLabel: e.batch_label ?? null,
       customLabel: e.custom_label ?? null,
     })),
     subjects,
@@ -1152,22 +1199,48 @@ export async function validatePlanAssignments(
 
   const slots = await listTimingSlots(plan.timing_template_id);
   const classSlots = slots.filter((s) => s.isAssignable);
-  const entryByKey = new Map<string, EntryRow>();
+  const entriesBySlot = new Map<string, EntryRow[]>();
   for (const entry of entries) {
     const slotId = entry.timing_slot_id ?? entry.period_slot_id;
     const key = `${entry.day_of_week}:${slotId}`;
-    if (entryByKey.has(key)) {
-      sectionClashes.push(
-        `Section clash on ${DAY_CODE_TO_LABEL[entry.day_of_week]} slot ${slotId}`,
-      );
+    const list = entriesBySlot.get(key) ?? [];
+    list.push(entry);
+    entriesBySlot.set(key, list);
+  }
+
+  for (const [key, slotEntries] of entriesBySlot.entries()) {
+    if (slotEntries.length > 1) {
+      const seenBatches = new Set<string>();
+      const seenFaculty = new Set<number>();
+      for (const entry of slotEntries) {
+        if (entry.faculty_staff_link_id) {
+          if (seenFaculty.has(entry.faculty_staff_link_id)) {
+            const [day, slotId] = key.split(":");
+            facultyClashes.push(
+              `Faculty clash: same faculty assigned multiple times on ${DAY_CODE_TO_LABEL[day as DayCode] ?? day} slot ${slotId}`,
+            );
+          }
+          seenFaculty.add(entry.faculty_staff_link_id);
+        }
+        const batch = (entry.batch_label ?? "").trim().toLowerCase();
+        if (batch) {
+          if (seenBatches.has(batch)) {
+            const [day, slotId] = key.split(":");
+            sectionClashes.push(
+              `Duplicate batch classification "${entry.batch_label}" on ${DAY_CODE_TO_LABEL[day as DayCode] ?? day} slot ${slotId}`,
+            );
+          }
+          seenBatches.add(batch);
+        }
+      }
     }
-    entryByKey.set(key, entry);
   }
 
   for (const slot of classSlots) {
     const key = `${slot.dayOfWeek}:${slot.id}`;
-    const entry = entryByKey.get(key);
-    if (!entry || !isAssignedEntry(entry)) {
+    const slotEntries = entriesBySlot.get(key) ?? [];
+    const hasAssigned = slotEntries.some((e) => isAssignedEntry(e));
+    if (!hasAssigned) {
       unassigned.push(`${slot.dayLabel} ${slot.label} (${slot.startTime}-${slot.endTime})`);
     }
   }
@@ -1360,13 +1433,44 @@ export async function saveTimetableDraft(input: {
     }
   }
 
-  // Section clash within payload
-  const seen = new Set<string>();
+  // Validate within payload: parallel assignments in same slot are allowed,
+  // but prevent duplicate faculty or duplicate batch classification in same slot.
+  const slotMap = new Map<string, AssignmentInput[]>();
   for (const a of input.assignments) {
     const day = toDayCode(String(a.dayOfWeek));
     const key = `${day}:${a.timingSlotId}`;
-    if (seen.has(key)) throw new Error(`Section clash on ${key}`);
-    seen.add(key);
+    const list = slotMap.get(key) ?? [];
+    list.push(a);
+    slotMap.set(key, list);
+  }
+
+  for (const [key, list] of slotMap.entries()) {
+    if (list.length > 1) {
+      const seenStaff = new Set<string>();
+      const seenBatches = new Set<string>();
+      for (const a of list) {
+        const staffKey = a.hrmsEmployeeId || (a.facultyStaffLinkId ? String(a.facultyStaffLinkId) : "");
+        if (staffKey) {
+          if (seenStaff.has(staffKey)) {
+            const [day, slotId] = key.split(":");
+            throw new Error(
+              `Faculty clash: same faculty assigned multiple times in the same slot on ${DAY_CODE_TO_LABEL[day as DayCode] ?? day} (slot ${slotId})`,
+            );
+          }
+          seenStaff.add(staffKey);
+        }
+        const batch = (a.batchLabel ?? "").trim().toLowerCase();
+        if (batch) {
+          if (seenBatches.has(batch)) {
+            const [day, slotId] = key.split(":");
+            throw new Error(
+              `Duplicate batch classification "${a.batchLabel}" in the same slot on ${DAY_CODE_TO_LABEL[day as DayCode] ?? day} (slot ${slotId})`,
+            );
+          }
+          seenBatches.add(batch);
+        }
+      }
+    }
   }
 
   // Verify subjects against EMS — do not trust client code/name/type
@@ -1551,13 +1655,27 @@ export async function saveTimetableDraft(input: {
       const facultyLinkId = await resolveFacultyLink(a, facultyContext);
       if (facultyLinkId) newFacultyIds.add(facultyLinkId);
       const customLabel = (a.customLabel ?? "").trim() || null;
+      const batchLabel = (a.batchLabel ?? "").trim() || null;
+      const studentIdsJson =
+        Array.isArray(a.studentIds) && a.studentIds.length > 0
+          ? JSON.stringify(a.studentIds)
+          : null;
+      const studentCount =
+        typeof a.studentCount === "number"
+          ? a.studentCount
+          : Array.isArray(a.studentIds) && a.studentIds.length > 0
+            ? a.studentIds.length
+            : null;
+      const weeklyRotation = a.weeklyRotation ? 1 : 0;
+      const rotationPattern = (a.rotationPattern ?? "").trim() || null;
+
       await conn.execute(
         `
         INSERT INTO ap_timetable_entries
           (plan_id, day_of_week, period_slot_id, timing_slot_id, subject_id, subject_code,
            subject_name, subject_type_snapshot, entry_type, faculty_staff_link_id, room_label,
-           custom_label)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           batch_label, student_ids, student_count, weekly_rotation, rotation_pattern, custom_label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           planId,
@@ -1571,6 +1689,11 @@ export async function saveTimetableDraft(input: {
           a.entryType ?? "theory",
           facultyLinkId,
           a.roomLabel ?? null,
+          batchLabel,
+          studentIdsJson,
+          studentCount,
+          weeklyRotation,
+          rotationPattern,
           customLabel,
         ],
       );

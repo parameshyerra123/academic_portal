@@ -51,6 +51,7 @@ type AssignmentRow = RowDataPacket & {
   subject_code: string | null;
   subject_name: string | null;
   room_label: string | null;
+  batch_label: string | null;
   plan_id: number;
   college_id: number;
   course_id: number;
@@ -251,6 +252,7 @@ async function loadPublishedAssignments(filters: WorkloadFilters, facultyStaffLi
       e.subject_code,
       e.subject_name,
       e.room_label,
+      e.batch_label,
       p.id AS plan_id,
       p.college_id,
       p.course_id,
@@ -315,6 +317,7 @@ function mapAssignment(row: AssignmentRow, catalog?: CatalogMaps) {
     timingTemplateId: row.timing_template_id ? Number(row.timing_template_id) : null,
     timingTemplateName: row.timing_template_name,
     roomLabel: row.room_label,
+    batchLabel: row.batch_label ?? null,
   };
 }
 

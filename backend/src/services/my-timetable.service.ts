@@ -51,6 +51,7 @@ type EnrichedAssignment = {
   courseName: string | null;
   branchName: string | null;
   roomLabel: string | null;
+  batchLabel: string | null;
 };
 
 export type TimetablePeriod =
@@ -76,6 +77,7 @@ export type TimetablePeriod =
       courseName: string | null;
       branchName: string | null;
       roomLabel: string | null;
+      batchLabel: string | null;
     }
   | {
       kind: "free";
@@ -159,6 +161,7 @@ function enrichAssignments(
     courseId: number;
     branchId: number;
     roomLabel: string | null;
+    batchLabel: string | null;
   }>,
   catalog: CatalogMaps,
 ): EnrichedAssignment[] {
@@ -247,6 +250,7 @@ function buildDayPeriods(
     courseName: item.courseName,
     branchName: item.branchName,
     roomLabel: item.roomLabel,
+    batchLabel: item.batchLabel,
   }));
 
   const templateSlots = classSlotsByDay.get(day) ?? [];
@@ -351,7 +355,7 @@ export async function getMyTimetable(
 export type MyTimetableDatePeriod =
   | ({
       kind: "regular";
-    } & Omit<Extract<TimetablePeriod, { kind: "class" }>, never>)
+    } & Omit<Extract<TimetablePeriod, { kind: "class" }>, "kind">)
   | {
       kind: "substituted";
       classSessionId: number;
@@ -470,6 +474,7 @@ export async function getMyTimetableForDate(
       courseName: null,
       branchName: null,
       roomLabel: row.room_label,
+      batchLabel: (row as any).batch_label ?? null,
     });
   }
 

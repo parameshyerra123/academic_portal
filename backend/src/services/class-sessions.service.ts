@@ -35,6 +35,11 @@ type PlanRow = RowDataPacket & {
   entry_type: string;
   faculty_staff_link_id: number | null;
   room_label: string | null;
+  batch_label: string | null;
+  student_ids?: string | null;
+  student_count?: number | null;
+  weekly_rotation?: number | boolean | null;
+  rotation_pattern?: string | null;
   slot_label: string;
   start_time: string;
   end_time: string;
@@ -63,6 +68,11 @@ type SessionRow = RowDataPacket & {
   subject_type_snapshot: string | null;
   faculty_staff_link_id: number | null;
   room_label: string | null;
+  batch_label: string | null;
+  student_ids?: string | null;
+  student_count?: number | null;
+  weekly_rotation?: number | boolean | null;
+  rotation_pattern?: string | null;
   status: string;
   faculty_name?: string | null;
   faculty_hrms_id?: string | null;
@@ -130,6 +140,19 @@ function mapSession(row: SessionRow) {
     facultyName: row.faculty_name ?? null,
     facultyHrmsId: row.faculty_hrms_id ?? null,
     roomLabel: row.room_label,
+    batchLabel: row.batch_label ?? null,
+    studentIds: row.student_ids
+      ? (() => {
+          try {
+            return JSON.parse(row.student_ids);
+          } catch {
+            return null;
+          }
+        })()
+      : null,
+    studentCount: row.student_count ?? null,
+    weeklyRotation: Boolean(row.weekly_rotation),
+    rotationPattern: row.rotation_pattern ?? null,
     status: row.status,
   };
 }
@@ -313,6 +336,11 @@ export async function generateClassSessions(input: {
       e.entry_type,
       e.faculty_staff_link_id,
       e.room_label,
+      e.batch_label,
+      e.student_ids,
+      e.student_count,
+      e.weekly_rotation,
+      e.rotation_pattern,
       s.label AS slot_label,
       s.start_time,
       s.end_time,
@@ -356,7 +384,50 @@ export async function generateClassSessions(input: {
       continue;
     }
 
+    // Calculate week of the month (1-4: Week 1: Days 1-7, Week 2: Days 8-14, Week 3: Days 15-21, Week 4: Days 22-end)
+    const dayOfMonth = date.getDate();
+    const weekOfMonth = Math.min(4, Math.floor((dayOfMonth - 1) / 7) + 1); // 1, 2, 3, 4
+
+    // Group slot entries by timing_slot_id for batch shifting
+    const entriesBySlot = new Map<number, EntrySlotRow[]>();
+    for (const ent of dayEntries) {
+      const list = entriesBySlot.get(ent.timing_slot_id) ?? [];
+      list.push(ent);
+      entriesBySlot.set(ent.timing_slot_id, list);
+    }
+
     for (const entry of dayEntries) {
+      const slotList = entriesBySlot.get(entry.timing_slot_id) ?? [];
+      let effectiveBatchLabel = entry.batch_label ?? null;
+      let effectiveStudentIds = entry.student_ids ?? null;
+      let effectiveStudentCount = entry.student_count ?? null;
+
+      // Determine whether this week is shifted based on rotation_pattern or standard alternating
+      let isShifted = false;
+      if (entry.weekly_rotation && slotList.length === 2) {
+        if (entry.rotation_pattern && entry.rotation_pattern.trim()) {
+          const patternParts = entry.rotation_pattern
+            .split(",")
+            .map((p) => parseInt(p.trim(), 10));
+          const val = patternParts[weekOfMonth - 1];
+          // 1 = standard (Batch 1 -> Subject 1), 2 = shifted (Batch 1 -> Subject 2)
+          isShifted = val === 2;
+        } else {
+          // Default fallback: even weeks of the month (W2, W4) are shifted
+          isShifted = weekOfMonth % 2 === 0;
+        }
+      }
+
+      // When shifted, swap student roster and batch classification to the partner subject
+      if (isShifted) {
+        const partner = slotList.find((p) => p.entry_id !== entry.entry_id);
+        if (partner) {
+          effectiveBatchLabel = partner.batch_label ?? null;
+          effectiveStudentIds = partner.student_ids ?? null;
+          effectiveStudentCount = partner.student_count ?? null;
+        }
+      }
+
       try {
         const result = await executeAcademic(
           `
@@ -365,8 +436,9 @@ export async function generateClassSessions(input: {
              timing_template_id, session_date, day_of_week, start_time, end_time,
              period_slot_id, timing_slot_id, section_name, branch_id, subject_id,
              subject_code, subject_name, subject_type_snapshot, faculty_staff_link_id,
-             room_label, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
+             room_label, batch_label, student_ids, student_count, weekly_rotation,
+             rotation_pattern, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
           `,
           [
             entry.entry_id,
@@ -389,6 +461,11 @@ export async function generateClassSessions(input: {
             entry.subject_type_snapshot ?? null,
             entry.faculty_staff_link_id,
             entry.room_label,
+            effectiveBatchLabel,
+            effectiveStudentIds,
+            effectiveStudentCount,
+            entry.weekly_rotation ? 1 : 0,
+            entry.rotation_pattern ?? null,
           ],
         );
         if ((result as ResultSetHeader).affectedRows > 0) created += 1;
