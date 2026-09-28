@@ -1245,15 +1245,36 @@ export async function validatePlanAssignments(
     }
   }
 
-  // Faculty clashes across published/in_review/draft plans sharing same college timing window
-  const facultyKeys = new Map<string, string>();
+  // Helper to parse HH:MM into minutes for overlap comparison
+  const parseTimeToMinutes = (t: string | null | undefined): number => {
+    if (!t) return 0;
+    const parts = String(t).slice(0, 5).split(":");
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return h * 60 + m;
+  };
+
+  // Faculty clashes across published plans sharing same college timing window
+  const localFacultyAssignments: Array<{
+    facultyLinkId: number;
+    dayOfWeek: DayCode;
+    startMin: number;
+    endMin: number;
+    label: string;
+  }> = [];
+
   for (const entry of entries) {
     if (!entry.faculty_staff_link_id) continue;
     const slotId = entry.timing_slot_id ?? entry.period_slot_id;
     const slot = slots.find((s) => s.id === slotId);
     if (!slot) continue;
-    const localKey = `${entry.faculty_staff_link_id}:${entry.day_of_week}:${slot.startTime}:${slot.endTime}`;
-    facultyKeys.set(localKey, `${DAY_CODE_TO_LABEL[entry.day_of_week]} ${slot.label}`);
+    localFacultyAssignments.push({
+      facultyLinkId: entry.faculty_staff_link_id,
+      dayOfWeek: entry.day_of_week,
+      startMin: parseTimeToMinutes(slot.startTime),
+      endMin: parseTimeToMinutes(slot.endTime),
+      label: `${DAY_CODE_TO_LABEL[entry.day_of_week]} ${slot.label}`,
+    });
   }
 
   if (entries.some((e) => e.faculty_staff_link_id)) {
@@ -1293,10 +1314,9 @@ export async function validatePlanAssignments(
         WHERE e.faculty_staff_link_id IN (${facultyIds.map(() => "?").join(",")})
           AND p.id <> ?
           AND p.college_id = ?
-          AND p.status IN ('draft','in_review','published')
+          AND p.status = 'published'
           AND NOT (
-            p.status = 'published'
-            AND p.academic_year_label = ?
+            p.academic_year_label = ?
             AND p.college_id = ?
             AND p.course_id = ?
             AND p.branch_id = ?
@@ -1322,11 +1342,19 @@ export async function validatePlanAssignments(
 
       const clashMessages = new Set<string>();
       for (const other of otherEntries) {
-        const key = `${other.faculty_staff_link_id}:${other.slot_day}:${String(other.slot_start).slice(0, 5)}:${String(other.slot_end).slice(0, 5)}`;
-        if (facultyKeys.has(key)) {
-          clashMessages.add(
-            `Faculty clash: same staff on ${DAY_CODE_TO_LABEL[other.slot_day]} ${String(other.slot_start).slice(0, 5)}-${String(other.slot_end).slice(0, 5)} (also in plan #${other.other_plan_id}${other.other_section ? ` · ${other.other_section}` : ""})`,
-          );
+        const otherStartMin = parseTimeToMinutes(other.slot_start);
+        const otherEndMin = parseTimeToMinutes(other.slot_end);
+        for (const local of localFacultyAssignments) {
+          if (
+            local.facultyLinkId === other.faculty_staff_link_id &&
+            local.dayOfWeek === other.slot_day &&
+            otherStartMin < local.endMin &&
+            local.startMin < otherEndMin
+          ) {
+            clashMessages.add(
+              `Faculty clash: same staff on ${DAY_CODE_TO_LABEL[other.slot_day]} ${String(other.slot_start).slice(0, 5)}-${String(other.slot_end).slice(0, 5)} (also in plan #${other.other_plan_id}${other.other_section ? ` · ${other.other_section}` : ""})`,
+            );
+          }
         }
       }
       facultyClashes.push(...clashMessages);
