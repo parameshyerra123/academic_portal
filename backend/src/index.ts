@@ -31,6 +31,7 @@ import { requestsRouter } from "./routes/requests.route.js";
 import { requestWorkflowsRouter } from "./routes/request-workflows.route.js";
 import { facultySubstitutionRouter } from "./routes/faculty-substitution.route.js";
 import { mentoringRouter } from "./routes/mentoring.route.js";
+import { todayTimetableRouter } from "./routes/today-timetable.route.js";
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use("/api/command-center", commandCenterRouter);
 app.use("/api/students", studentsRouter);
 app.use("/api/semester-dates", semesterDatesRouter);
 app.use("/api/timetables", timetablesRouter);
+app.use("/api/today-timetable", todayTimetableRouter);
 app.use("/api/timings", timingRouter);
 app.use("/api/class-sessions", classSessionsRouter);
 app.use("/api/academic-dates", academicDatesRouter);

@@ -71,10 +71,16 @@ export const NAV_GROUPS: NavGroup[] = [
         permissions: ["attendance_calendar.view"],
       },
       {
-        label: "Timetables",
+        label: "Master Timetable",
         href: "/timetables",
         icon: CalendarDays,
         permissions: ["timetable.view"],
+      },
+      {
+        label: "Today Timetable",
+        href: "/today-timetable",
+        icon: CalendarCheck,
+        permissions: ["today_timetable.view", "timetable.view"],
       },
       {
         label: "Staff Workload",

@@ -59,7 +59,10 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
     pathname === "/mentoring-risks";
   const showStudentQuerySearch = showSearch || isMentoringPage;
   const isTimetablesPage =
-    pathname === "/timetables" || pathname.startsWith("/timetables/");
+    pathname === "/timetables" ||
+    pathname.startsWith("/timetables/") ||
+    pathname === "/today-timetable" ||
+    pathname.startsWith("/today-timetable/");
   const isAttendanceAnalytics =
     pathname === "/attendance-analytics" || pathname.startsWith("/attendance-analytics");
   const usesBatchProgressYear = isTimetablesPage || isMentoringPage || isAttendanceAnalytics;
@@ -701,11 +704,39 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
             className={selectClassName}
             value={filters.branchId === "all" ? "all" : String(filters.branchId)}
             disabled={loading || !masters}
-            onChange={(e) =>
+            onChange={(e) => {
+              const bId = e.target.value === "all" ? "all" : Number(e.target.value);
+              if (bId === "all") {
+                setFilters({ branchId: "all" });
+                return;
+              }
+              const branchObj = masters?.branches.find((b) => b.id === bId);
+              const matchingCourseId = branchObj?.courseId ?? filters.courseId;
+              const batchesForThisBranch =
+                masters?.batches.filter((b) => b.branchId === bId).map((b) => b.batch) ?? [];
+              const defaultBatch =
+                filters.batch !== "all" && batchesForThisBranch.includes(filters.batch)
+                  ? filters.batch
+                  : batchesForThisBranch[0] ?? "all";
+
+              const sectionsForThisBranch =
+                masters?.sections.filter((s) => s.branchId === bId).map((s) => s.name) ?? [];
+              const defaultSection = branchObj?.hasSections
+                ? filters.section !== "all" && sectionsForThisBranch.includes(filters.section)
+                  ? filters.section
+                  : sectionsForThisBranch[0] ?? "all"
+                : "all";
+
               setFilters({
-                branchId: e.target.value === "all" ? "all" : Number(e.target.value),
-              })
-            }
+                branchId: bId,
+                courseId: matchingCourseId,
+                batch: defaultBatch,
+                section: defaultSection,
+                ...(isTimetablesPage && (filters.year === "all" || filters.semester === "all")
+                  ? { year: 1, semester: 1 }
+                  : {}),
+              });
+            }}
           >
             <option value="all">All Branches</option>
             {branchesForCourse.map((branch) => (

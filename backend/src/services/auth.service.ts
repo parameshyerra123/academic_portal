@@ -102,9 +102,38 @@ export async function ensureAuthSchema() {
           KEY idx_ap_sessions_user (user_id),
           KEY idx_ap_sessions_expires (expires_at),
           CONSTRAINT fk_ap_sessions_user FOREIGN KEY (user_id) REFERENCES ap_users(id)
-            ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        )
       `);
+
+      try {
+        await executeAcademic(`
+          INSERT INTO ap_permissions (permission_key, module, action, display_name, description, is_active)
+          VALUES
+            ('today_timetable.view', 'today_timetable', 'view', 'View Today Timetable', 'View daily timetable schedules and activity logs.', 1),
+            ('today_timetable.edit', 'today_timetable', 'edit', 'Edit Today Timetable', 'Edit daily timetable periods, subject and faculty assignments.', 1)
+          ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), description = VALUES(description), is_active = 1
+        `);
+
+        await executeAcademic(`
+          INSERT IGNORE INTO ap_role_permissions (role_id, permission_id)
+          SELECT r.id, p.id
+          FROM ap_roles r
+          CROSS JOIN ap_permissions p
+          WHERE p.permission_key IN ('today_timetable.view', 'today_timetable.edit')
+            AND r.role_key IN ('super_admin', 'principal', 'vice_principal', 'hod')
+        `);
+
+        await executeAcademic(`
+          INSERT IGNORE INTO ap_role_permissions (role_id, permission_id)
+          SELECT r.id, p.id
+          FROM ap_roles r
+          CROSS JOIN ap_permissions p
+          WHERE p.permission_key = 'today_timetable.view'
+            AND r.role_key = 'staff'
+        `);
+      } catch (err) {
+        console.warn("Could not ensure today_timetable permissions in database:", err);
+      }
     })();
   }
   await schemaReady;

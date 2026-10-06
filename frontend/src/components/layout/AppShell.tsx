@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { AcademicProvider } from "@/components/layout/AcademicProvider";
 import { AcademicFilterBar } from "@/components/layout/AcademicFilterBar";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -9,8 +10,15 @@ import { TopHeader } from "@/components/layout/TopHeader";
 const COLLAPSE_KEY = "ap.sidebar.collapsed";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  const isTimetablePage =
+    pathname === "/timetables" ||
+    pathname.startsWith("/timetables/") ||
+    pathname === "/today-timetable" ||
+    pathname.startsWith("/today-timetable/");
 
   useEffect(() => {
     try {
@@ -49,9 +57,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <TopHeader onMenuClick={() => setMobileOpen(true)} />
           </div>
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-5 print:block print:overflow-visible print:p-0">
-            <div className="print:hidden">
-              <AcademicFilterBar title="Page filters" />
-            </div>
+            {!isTimetablePage ? (
+              <div className="print:hidden">
+                <AcademicFilterBar title="Page filters" />
+              </div>
+            ) : null}
             {children}
           </main>
         </div>

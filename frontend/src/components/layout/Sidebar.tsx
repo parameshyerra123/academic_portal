@@ -3,16 +3,16 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronRight,
   LogOut,
   PanelLeftClose,
-  PanelLeftOpen,
   UserRound,
   X,
 } from "lucide-react";
-import { NAV_GROUPS, filterNavGroups, navLabelForItem } from "@/lib/navigation";
+import { NAV_GROUPS, filterNavGroups, navLabelForItem, type NavGroup } from "@/lib/navigation";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isTeachingStaffOnly, isSuperAdminUser } from "@/lib/teaching-scope";
@@ -33,6 +33,70 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
     useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [mounted, setMounted] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState<{
+    title: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [flyoutMenu, setFlyoutMenu] = useState<{
+    group: NavGroup;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setFlyoutMenu(null);
+    setHoveredItem(null);
+  }, [pathname, searchParams, collapsed]);
+
+  useEffect(() => {
+    if (!flyoutMenu) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node | null;
+      const flyoutEl = document.getElementById("sidebar-flyout-menu");
+      if (flyoutEl && flyoutEl.contains(target)) {
+        return;
+      }
+      const clickedToggleButton = (target as Element | null)?.closest?.("[data-group-toggle]");
+      if (clickedToggleButton) {
+        return;
+      }
+      setFlyoutMenu(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setFlyoutMenu(null);
+      }
+    }
+
+    window.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [flyoutMenu]);
+
+  const showTooltip = (title: string, e: React.MouseEvent<HTMLElement>) => {
+    if (flyoutMenu) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoveredItem({
+      title,
+      top: rect.top + rect.height / 2 - 13,
+      left: rect.right + 10,
+    });
+  };
+
+  const hideTooltip = () => {
+    setHoveredItem(null);
+  };
 
   const teachingStaffOnly = isTeachingStaffOnly(authorization);
   const superAdminUser = isSuperAdminUser(authorization);
@@ -129,56 +193,72 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,transform] duration-200 lg:static lg:h-full lg:max-h-none lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh flex-col overflow-x-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,transform] duration-200 lg:static lg:h-full lg:max-h-none lg:translate-x-0",
           collapsed ? "w-[72px]" : "w-[240px]",
           open ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
       >
         <div
           className={cn(
-            "flex shrink-0 items-center gap-2 border-b border-sidebar-border px-3 py-3",
-            collapsed && "justify-center px-2",
+            "flex shrink-0 items-center border-b border-sidebar-border px-3 py-3",
+            collapsed ? "justify-center px-2" : "gap-2",
           )}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/branding/icon-mark.png"
-            alt="Pydah Academic Portal"
-            className="h-8 w-8 shrink-0 rounded-md object-contain"
-          />
-          {!collapsed ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-brand-500">
-                Pydah Group
-              </p>
-              <h1 className="truncate text-sm font-semibold text-white">
-                Academic Portal
-              </h1>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-slate-300 hover:bg-sidebar-hover lg:hidden"
-            onClick={onClose}
-            aria-label="Close navigation"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="hidden rounded-md p-1.5 text-slate-300 hover:bg-sidebar-hover lg:inline-flex"
-            onClick={onToggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </button>
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="group flex h-9 w-9 items-center justify-center rounded-lg transition hover:bg-sidebar-hover focus:outline-hidden"
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/branding/icon-mark.png"
+                alt="Pydah Academic Portal"
+                className="h-7 w-7 rounded-md object-contain transition-transform group-hover:scale-105"
+              />
+            </button>
+          ) : (
+            <>
+              <Link href="/dashboard" className="flex min-w-0 flex-1 items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/branding/icon-mark.png"
+                  alt="Pydah Academic Portal"
+                  className="h-8 w-8 shrink-0 rounded-md object-contain"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-brand-500">
+                    Pydah Group
+                  </p>
+                  <h1 className="truncate text-sm font-semibold text-white">
+                    Academic Portal
+                  </h1>
+                </div>
+              </Link>
+              <button
+                type="button"
+                className="rounded-md p-1.5 text-slate-300 hover:bg-sidebar-hover lg:hidden"
+                onClick={onClose}
+                aria-label="Close navigation"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="hidden rounded-md p-1.5 text-slate-300 hover:bg-sidebar-hover lg:inline-flex"
+                onClick={onToggleCollapsed}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
 
-        <nav className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
+        <nav className="sidebar-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-3">
           {groups.map((group) => {
             const GroupIcon = group.icon;
             const isGroupActive = group.items.some((item) => isItemActive(item.href));
@@ -186,64 +266,78 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
             const hasMultiple = group.items.length > 1;
 
             if (collapsed) {
+              if (hasMultiple) {
+                const isFlyoutOpen = flyoutMenu?.group.title === group.title;
+                return (
+                  <div key={group.title} className="mb-2">
+                    <button
+                      type="button"
+                      data-group-toggle={group.title}
+                      onClick={(e) => {
+                        hideTooltip();
+                        if (isFlyoutOpen) {
+                          setFlyoutMenu(null);
+                        } else {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const estimatedHeight = Math.min(
+                            window.innerHeight - 32,
+                            50 + group.items.length * 36,
+                          );
+                          const maxTop = window.innerHeight - estimatedHeight - 16;
+                          const top = Math.max(16, Math.min(rect.top, maxTop));
+                          setFlyoutMenu({
+                            group,
+                            top,
+                            left: rect.right + 8,
+                          });
+                        }
+                      }}
+                      onMouseEnter={(e) => showTooltip(group.title, e)}
+                      onMouseLeave={hideTooltip}
+                      className={cn(
+                        "mx-auto flex h-10 w-10 items-center justify-center rounded-lg transition-all",
+                        isGroupActive || isFlyoutOpen
+                          ? "bg-sidebar-active text-white shadow-sm"
+                          : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
+                      )}
+                      title={group.title}
+                      aria-label={group.title}
+                    >
+                      <GroupIcon className="h-5 w-5" />
+                    </button>
+                  </div>
+                );
+              }
+
+              // Single item in collapsed mode
+              const singleItem = group.items[0];
+              if (!singleItem) return null;
+              const active = isItemActive(singleItem.href);
+              const ItemIcon = singleItem.icon || GroupIcon;
+              const label = navLabelForItem(singleItem, { superAdminUser });
+
               return (
-                <div key={group.title} className="group/collapsed-group relative mb-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleGroup(group.title)}
+                <div key={group.title} className="mb-2">
+                  <Link
+                    href={singleItem.href}
+                    onClick={() => {
+                      setFlyoutMenu(null);
+                      hideTooltip();
+                      onClose();
+                    }}
+                    onMouseEnter={(e) => showTooltip(label, e)}
+                    onMouseLeave={hideTooltip}
                     className={cn(
                       "mx-auto flex h-10 w-10 items-center justify-center rounded-lg transition-all",
-                      isGroupActive
+                      active
                         ? "bg-sidebar-active text-white shadow-sm"
                         : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
                     )}
-                    title={group.title}
+                    title={label}
+                    aria-label={label}
                   >
-                    <GroupIcon className="h-5 w-5" />
-                  </button>
-
-                  {/* Flyout menu on hover in collapsed mode */}
-                  <div className="pointer-events-none absolute left-full top-0 z-50 ml-2.5 w-56 opacity-0 transition-all duration-150 group-hover/collapsed-group:pointer-events-auto group-hover/collapsed-group:opacity-100">
-                    <div className="rounded-xl border border-sidebar-border bg-sidebar p-2 shadow-xl">
-                      <div className="mb-1 flex items-center justify-between border-b border-sidebar-border/60 px-2.5 py-1.5">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-400">
-                          {group.title}
-                        </p>
-                        <span className="rounded-full bg-sidebar-active px-1.5 py-0.2 text-[10px] font-medium text-slate-200">
-                          {group.items.length}
-                        </span>
-                      </div>
-                      <ul className="space-y-0.5">
-                        {group.items.map((item) => {
-                          const active = isItemActive(item.href);
-                          const ItemIcon = item.icon;
-                          const label = navLabelForItem(item, { superAdminUser });
-                          return (
-                            <li key={item.href}>
-                              <Link
-                                href={item.href}
-                                onClick={onClose}
-                                className={cn(
-                                  "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-                                  active
-                                    ? "bg-sidebar-active font-semibold text-white"
-                                    : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
-                                )}
-                              >
-                                <ItemIcon
-                                  className={cn(
-                                    "h-3.5 w-3.5 shrink-0",
-                                    active ? "text-brand-400" : "text-slate-400",
-                                  )}
-                                />
-                                <span className="truncate">{label}</span>
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  </div>
+                    <ItemIcon className="h-5 w-5" />
+                  </Link>
                 </div>
               );
             }
@@ -273,14 +367,11 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
                           {group.title}
                         </span>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <span className="rounded-full bg-sidebar-border/80 px-1.5 py-0.2 text-[9px] font-medium text-slate-300">
-                          {group.items.length}
-                        </span>
+                      <div className="flex shrink-0 items-center">
                         {isGroupExpanded ? (
-                          <ChevronDown className="h-3 w-3 text-slate-300" />
+                          <ChevronDown className="h-3.5 w-3.5 text-slate-300" />
                         ) : (
-                          <ChevronRight className="h-3 w-3 text-slate-300" />
+                          <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
                         )}
                       </div>
                     </button>
@@ -380,6 +471,8 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
                   setProfileOpen(true);
                   onClose();
                 }}
+                onMouseEnter={(e) => showTooltip(user?.name || "Profile", e)}
+                onMouseLeave={hideTooltip}
                 className="flex h-9 w-9 items-center justify-center rounded-md text-slate-300 transition hover:bg-sidebar-hover hover:text-white disabled:cursor-default disabled:hover:bg-transparent"
                 title={user?.name || "Profile"}
                 aria-label="Profile"
@@ -389,6 +482,8 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
               <button
                 type="button"
                 onClick={() => void logout()}
+                onMouseEnter={(e) => showTooltip("Sign out", e)}
+                onMouseLeave={hideTooltip}
                 className="flex h-9 w-9 items-center justify-center rounded-md text-slate-300 transition hover:bg-sidebar-hover hover:text-white"
                 title="Sign out"
                 aria-label="Sign out"
@@ -397,7 +492,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
               </button>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 disabled={!canOpenProfile}
@@ -406,7 +501,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
                   setProfileOpen(true);
                   onClose();
                 }}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition hover:bg-sidebar-hover disabled:cursor-default disabled:hover:bg-transparent"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition hover:bg-sidebar-hover disabled:cursor-default disabled:hover:bg-transparent"
                 title={canOpenProfile ? "View / edit your profile" : undefined}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sidebar-active text-white">
@@ -424,10 +519,11 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-slate-300 transition hover:bg-sidebar-hover hover:text-white"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-300 transition hover:bg-sidebar-hover hover:text-white"
+                title="Sign out"
+                aria-label="Sign out"
               >
-                <LogOut className="h-4 w-4 shrink-0 text-slate-300" />
-                Sign out
+                <LogOut className="h-4 w-4 shrink-0" />
               </button>
             </div>
           )}
@@ -444,6 +540,78 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
           }}
         />
       ) : null}
+
+      {mounted && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {/* Tooltip on hover */}
+              {hoveredItem && !flyoutMenu ? (
+                <div
+                  className="pointer-events-none fixed z-[9999] rounded-md border border-slate-700/80 bg-slate-900/95 px-2.5 py-1 text-xs font-medium text-white shadow-xl backdrop-blur-xs whitespace-nowrap animate-in fade-in zoom-in-95 duration-100"
+                  style={{ top: hoveredItem.top, left: hoveredItem.left }}
+                >
+                  {hoveredItem.title}
+                </div>
+              ) : null}
+
+              {/* Side subsection flyout on click */}
+              {flyoutMenu ? (
+                <div
+                  id="sidebar-flyout-menu"
+                  className="fixed z-[9999] w-60 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-sidebar-border bg-sidebar p-2 shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                  style={{ top: flyoutMenu.top, left: flyoutMenu.left }}
+                >
+                  <div className="mb-1.5 flex items-center justify-between border-b border-sidebar-border/60 px-2.5 py-1.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-400">
+                      {flyoutMenu.group.title}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setFlyoutMenu(null)}
+                      className="rounded p-0.5 text-slate-400 hover:text-white hover:bg-sidebar-hover transition"
+                      aria-label="Close menu"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <ul className="space-y-0.5">
+                    {flyoutMenu.group.items.map((item) => {
+                      const active = isItemActive(item.href);
+                      const ItemIcon = item.icon;
+                      const label = navLabelForItem(item, { superAdminUser });
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            onClick={() => {
+                              setFlyoutMenu(null);
+                              onClose();
+                            }}
+                            className={cn(
+                              "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                              active
+                                ? "bg-sidebar-active font-semibold text-white shadow-2xs"
+                                : "text-white hover:bg-sidebar-hover",
+                            )}
+                          >
+                            <ItemIcon
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0",
+                                active ? "text-brand-400" : "text-white/90",
+                              )}
+                            />
+                            <span className="truncate text-white font-medium">{label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
