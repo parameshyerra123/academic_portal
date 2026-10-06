@@ -9,6 +9,7 @@ import { ArrowUpDown, Check, Plus, Printer, Search, Users } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
+import { AcademicFilterBar } from "@/components/layout/AcademicFilterBar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { TimingEditorDrawer } from "@/features/timetables/TimingEditorDrawer";
@@ -1844,55 +1845,65 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
 
   return (
     <div>
-      {!embedded ? <div className="mb-5 flex flex-col items-center text-center gap-2">
-        <h1 className="text-[28px] font-bold leading-tight text-navy-900">
-          Timetable
-        </h1>
-        <p className="text-sm text-slate-500 max-w-3xl print:hidden">
-          College-specific timing templates owned by Academic Portal. Student DB is used only for academic masters.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-2 print:hidden mt-2">
-          {timingContextReady && canConfigureTimings ? (
+      {!embedded ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-[28px] font-bold leading-tight text-navy-900">
+              Master Timetable
+            </h1>
+            <p className="mt-1 text-sm text-slate-500 max-w-xl print:hidden">
+              College-specific timing templates owned by Academic Portal. Student DB is used only for academic masters.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {timingContextReady && canConfigureTimings ? (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setTimingsOpen(true)}
+                className="print:hidden"
+              >
+                {planner?.missingTiming || !planner?.timing
+                  ? "Configure Timings"
+                  : "Edit Timings"}
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
-              disabled={busy}
-              onClick={() => setTimingsOpen(true)}
+              disabled={!planner?.ready || busy}
+              onClick={() => window.print()}
               className="print:hidden"
             >
-              {planner?.missingTiming || !planner?.timing
-                ? "Configure Timings"
-                : "Edit Timings"}
+              <Printer className="mr-2 h-4 w-4" /> Download PDF
             </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            disabled={!planner?.ready || busy}
-            onClick={() => window.print()}
-            className="print:hidden"
-          >
-            <Printer className="mr-2 h-4 w-4" /> Download PDF
-          </Button>
-          {canEdit ? (
-            <Button variant="secondary" disabled={!planner?.ready || busy} onClick={() => void saveDraft()} className="print:hidden">
-              Save Draft
-            </Button>
-          ) : null}
-          {canEdit ? (
-            <Button variant="secondary" disabled={!planner?.ready || busy} onClick={() => void runReview()} className="print:hidden">
-              Review
-            </Button>
-          ) : null}
-          {canPublish ? (
-            <Button
-              disabled={!planner?.ready || busy || publishBlocked}
-              onClick={() => void publish()}
-              className="print:hidden"
-            >
-              Publish
-            </Button>
-          ) : null}
+            {canEdit ? (
+              <Button variant="secondary" disabled={!planner?.ready || busy} onClick={() => void saveDraft()} className="print:hidden">
+                Save Draft
+              </Button>
+            ) : null}
+            {canEdit ? (
+              <Button variant="secondary" disabled={!planner?.ready || busy} onClick={() => void runReview()} className="print:hidden">
+                Review
+              </Button>
+            ) : null}
+            {canPublish ? (
+              <Button
+                disabled={!planner?.ready || busy || publishBlocked}
+                onClick={() => void publish()}
+                className="print:hidden"
+              >
+                Publish
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div> : null}
+      ) : null}
+
+      {!embedded ? (
+        <div className="mb-4 print:hidden">
+          <AcademicFilterBar title="Page filters" />
+        </div>
+      ) : null}
 
       {missingLabel ? (
         <Card className="mb-4">

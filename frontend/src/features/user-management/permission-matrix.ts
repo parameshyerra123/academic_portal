@@ -99,6 +99,19 @@ export const PERMISSION_PRESENTATION: Record<
     kind: "write",
     sensitive: true,
   },
+  "today_timetable.view": {
+    key: "today_timetable.view",
+    label: "View Today Timetable",
+    description: "View daily schedules, calendar day variations, and change activities.",
+    kind: "read",
+  },
+  "today_timetable.edit": {
+    key: "today_timetable.edit",
+    label: "Edit Today Timetable",
+    description: "Change periods, faculty assignments, or subjects for today and upcoming dates.",
+    kind: "write",
+    sensitive: true,
+  },
   "attendance.view": {
     key: "attendance.view",
     label: "View Attendance Posting",
@@ -305,9 +318,15 @@ export const PERMISSION_MATRIX_MODULES: MatrixModuleDef[] = [
   },
   {
     group: "Academics",
-    label: "Timetables",
+    label: "Master Timetable",
     href: "/timetables",
     permissions: [asDef("timetable.view"), asDef("timetable.edit"), asDef("timetable.publish")],
+  },
+  {
+    group: "Academics",
+    label: "Today Timetable",
+    href: "/today-timetable",
+    permissions: [asDef("today_timetable.view"), asDef("today_timetable.edit")],
   },
   {
     group: "Academics",

@@ -75,6 +75,18 @@ const PERMISSION_META: Record<
     displayName: "Publish Timetable",
     description: "Publish timetable plans",
   },
+  "today_timetable.view": {
+    module: "today_timetable",
+    action: "view",
+    displayName: "View Today Timetable",
+    description: "View daily timetable schedules and activity logs",
+  },
+  "today_timetable.edit": {
+    module: "today_timetable",
+    action: "edit",
+    displayName: "Edit Today Timetable",
+    description: "Edit daily timetable periods and faculty assignments",
+  },
   "attendance.view": {
     module: "attendance",
     action: "view",
