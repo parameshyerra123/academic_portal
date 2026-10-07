@@ -1095,6 +1095,401 @@ function PeriodEditModal({
   );
 }
 
+type PeriodSlotItem = {
+  id: number;
+  label: string;
+  startTime: string;
+  endTime: string;
+  slotType: string;
+  isAssignable: boolean;
+  isActive?: boolean;
+};
+
+/**
+ * Period Grid for Today Timetable:
+ * - Desktop: Unified header row and period cards row spanning 100% width without horizontal scrolling!
+ * - Mobile & Tablet: Responsive card grid that wraps cleanly into columns without horizontal scrolling!
+ * - Beautiful aesthetic matching the Master Timetable period grid (Image 1).
+ */
+function TodayPeriodGrid({
+  slots,
+  getMasterCell,
+  getOverride,
+  isChanged,
+  onSlotClick,
+}: {
+  slots: PeriodSlotItem[];
+  getMasterCell: (slotId: number) => SlotCell | null;
+  getOverride: (slotId: number) => PeriodOverride | null;
+  isChanged: (slotId: number) => boolean;
+  onSlotClick: (
+    slot: { id: number; label: string; startTime: string; endTime: string },
+    masterEntry: SlotCellEntry | null,
+  ) => void;
+}) {
+  if (slots.length === 0) return null;
+
+  return (
+    <div className="w-full">
+      {/* 1. DESKTOP GRID VIEW (Visible on lg and above, hidden on smaller screens):
+             Headers on top, cards aligned below. Columns fit 100% width with NO horizontal scroll! */}
+      <div className="hidden lg:block w-full">
+        {/* Column Headers Row */}
+        <div
+          className="grid gap-2.5 w-full text-center mb-2.5"
+          style={{ gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))` }}
+        >
+          {slots.map((slot) => {
+            const isBreak = isNonClassTimingSlot(slot);
+            return (
+              <div
+                key={`hdr-${slot.id}`}
+                className={cn(
+                  "flex flex-col items-center justify-center rounded-xl px-2 py-2 border text-center transition-colors",
+                  isBreak
+                    ? "bg-slate-100/90 border-slate-200/90 text-slate-600"
+                    : "bg-slate-50/90 border-slate-200/80 text-slate-700"
+                )}
+              >
+                <span className="text-xs font-bold uppercase tracking-wide truncate w-full">
+                  {isBreak ? timingSlotDisplayLabel(slot) : slot.label}
+                </span>
+                <span className="text-[10px] font-medium text-slate-400 mt-0.5 truncate w-full">
+                  {isBreak && slot.label && !slot.label.toLowerCase().includes("break") ? `${slot.label} · ` : ""}
+                  {slot.startTime}–{slot.endTime}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Period Cards Row */}
+        <div
+          className="grid gap-2.5 w-full items-stretch"
+          style={{ gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))` }}
+        >
+          {slots.map((slot) => {
+            const isBreak = isNonClassTimingSlot(slot);
+            const masterCell = getMasterCell(slot.id);
+            const masterEntries =
+              masterCell?.entries && masterCell.entries.length > 0
+                ? masterCell.entries
+                : masterCell?.entry
+                ? [masterCell.entry]
+                : [];
+            const masterEntry = masterEntries[0] ?? null;
+            const isMultiBatch = masterEntries.length > 1;
+            const override = getOverride(slot.id);
+            const changed = isChanged(slot.id);
+
+            const displaySubjectName =
+              override?.subjectName ||
+              masterEntry?.customLabel ||
+              masterEntry?.subjectName ||
+              masterEntry?.subjectCode;
+            const displaySubjectCode =
+              override?.subjectCode ||
+              (masterEntry?.subjectCode && masterEntry.subjectCode !== masterEntry.subjectName
+                ? masterEntry.subjectCode
+                : null);
+            const displayFacultyName =
+              override?.facultyName || masterEntry?.facultyName;
+            const hasContent = Boolean(displaySubjectName || displayFacultyName);
+            const isLunchBreak =
+              isBreak &&
+              (slot.slotType === "LUNCH" || timingSlotDisplayLabel(slot) === "Lunch Break");
+            const isSpecial = Boolean(masterEntry?.customLabel);
+
+            if (isBreak) {
+              if (isLunchBreak) {
+                return (
+                  <div
+                    key={slot.id}
+                    className="flex flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 text-center min-h-[110px]"
+                  >
+                    <span className="text-xs font-bold text-amber-900 leading-tight">
+                      Lunch Break
+                    </span>
+                    <span className="text-[10px] text-amber-700/80 mt-1 font-medium">
+                      {slot.startTime}–{slot.endTime}
+                    </span>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={slot.id}
+                  className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50/80 p-2.5 text-center min-h-[110px]"
+                >
+                  <span className="text-xs font-bold text-slate-700 leading-tight">
+                    {timingSlotDisplayLabel(slot)}
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-1 font-medium">
+                    {slot.startTime}–{slot.endTime}
+                  </span>
+                </div>
+              );
+            }
+
+            if (isSpecial) {
+              return (
+                <button
+                  key={slot.id}
+                  type="button"
+                  onClick={() => onSlotClick(slot, masterEntry)}
+                  className="group relative flex flex-col justify-between rounded-xl border border-purple-200 bg-purple-50/50 p-2.5 text-left min-h-[110px] shadow-2xs hover:shadow-md hover:border-purple-300 transition-all cursor-pointer"
+                  title={`Click to view details for ${slot.label}`}
+                >
+                  <div>
+                    <span className="text-xs font-bold uppercase text-purple-900 block truncate" title={masterEntry?.customLabel || "Special"}>
+                      {masterEntry?.customLabel}
+                    </span>
+                    <span className="text-[10.5px] font-medium text-purple-600 block mt-0.5">
+                      Free / Special
+                    </span>
+                  </div>
+                  {masterEntry?.facultyName && (
+                    <span className="text-[10.5px] font-medium text-slate-600 truncate block mt-auto pt-1" title={masterEntry.facultyName}>
+                      {masterEntry.facultyName}
+                    </span>
+                  )}
+                  <div className="flex items-center justify-between mt-auto pt-1 border-t border-purple-100/60">
+                    <span className="text-[9px] font-semibold text-purple-700">Special</span>
+                    <Edit2 className="h-3 w-3 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              );
+            }
+
+            return (
+              <button
+                key={slot.id}
+                type="button"
+                onClick={() => onSlotClick(slot, masterEntry)}
+                className={cn(
+                  "group relative flex flex-col justify-between rounded-xl border p-2.5 text-left min-h-[110px] shadow-2xs transition-all cursor-pointer",
+                  !hasContent
+                    ? "border-slate-200 bg-slate-50/40 hover:border-slate-300 hover:bg-slate-100/60"
+                    : changed
+                    ? "border-rose-300 bg-rose-50/60 hover:border-rose-400 hover:shadow-md ring-1 ring-rose-200/80"
+                    : "border-slate-200/90 bg-white hover:border-indigo-400 hover:shadow-md"
+                )}
+                title={`Click to view comparison and details for ${slot.label}`}
+              >
+                {!hasContent ? (
+                  <div className="flex flex-col items-center justify-center h-full w-full my-auto text-center">
+                    <span className="text-xs text-slate-400 italic">Free Period</span>
+                  </div>
+                ) : isMultiBatch ? (
+                  <div className="w-full space-y-1.5 divide-y divide-slate-100">
+                    {masterEntries.map((ent, eIdx) => (
+                      <div key={eIdx} className={cn("text-left", eIdx > 0 ? "pt-1" : "")}>
+                        <div className="flex items-center gap-1">
+                          <span className="rounded bg-navy-100 text-navy-800 font-bold px-1 py-0.2 text-[8.5px] uppercase">
+                            {ent.batchLabel || `B${eIdx + 1}`}
+                          </span>
+                          <span className="text-xs font-bold text-navy-900 truncate" title={ent.subjectName || ent.subjectCode || ""}>
+                            {ent.subjectName || ent.subjectCode}
+                          </span>
+                        </div>
+                        {ent.facultyName && (
+                          <span className="text-[10px] text-slate-600 truncate block mt-0.5" title={ent.facultyName}>
+                            {ent.facultyName}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    <p
+                      className={cn(
+                        "text-xs font-bold uppercase leading-snug line-clamp-2",
+                        changed ? "text-rose-950" : "text-navy-900"
+                      )}
+                      title={displaySubjectName || ""}
+                    >
+                      {displaySubjectName || "Unassigned"}
+                    </p>
+                    {displaySubjectCode && (
+                      <p className="text-[10.5px] font-medium text-slate-500 mt-0.5 truncate" title={displaySubjectCode}>
+                        {displaySubjectCode}
+                      </p>
+                    )}
+                    {displayFacultyName && (
+                      <p
+                        className={cn(
+                          "text-[10.5px] font-semibold mt-1 truncate",
+                          changed ? "text-rose-800" : "text-slate-700"
+                        )}
+                        title={displayFacultyName}
+                      >
+                        {displayFacultyName}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Bottom row: status indicator */}
+                <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-slate-100/80">
+                  {changed ? (
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.2 text-[9px] font-extrabold text-rose-700 border border-rose-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                      <span>Changed</span>
+                    </span>
+                  ) : hasContent ? (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <span>Actual</span>
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-slate-400">Available</span>
+                  )}
+                  <Edit2
+                    className={cn(
+                      "h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity",
+                      changed ? "text-rose-600" : "text-indigo-600"
+                    )}
+                  />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2. RESPONSIVE MOBILE / TABLET VIEW (Visible on screens < 1024px, hidden on lg and above):
+             Wraps cleanly into 2 or 3 responsive columns, so mobile users NEVER have to scroll horizontally! */}
+      <div className="block lg:hidden w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 w-full">
+          {slots.map((slot) => {
+            const isBreak = isNonClassTimingSlot(slot);
+            const masterCell = getMasterCell(slot.id);
+            const masterEntries =
+              masterCell?.entries && masterCell.entries.length > 0
+                ? masterCell.entries
+                : masterCell?.entry
+                ? [masterCell.entry]
+                : [];
+            const masterEntry = masterEntries[0] ?? null;
+            const override = getOverride(slot.id);
+            const changed = isChanged(slot.id);
+
+            const displaySubjectName =
+              override?.subjectName ||
+              masterEntry?.customLabel ||
+              masterEntry?.subjectName ||
+              masterEntry?.subjectCode;
+            const displaySubjectCode =
+              override?.subjectCode ||
+              (masterEntry?.subjectCode && masterEntry.subjectCode !== masterEntry.subjectName
+                ? masterEntry.subjectCode
+                : null);
+            const displayFacultyName =
+              override?.facultyName || masterEntry?.facultyName;
+            const hasContent = Boolean(displaySubjectName || displayFacultyName);
+            const isLunchBreak =
+              isBreak &&
+              (slot.slotType === "LUNCH" || timingSlotDisplayLabel(slot) === "Lunch Break");
+
+            if (isBreak) {
+              return (
+                <div
+                  key={slot.id}
+                  className={cn(
+                    "rounded-xl border p-3 flex flex-col justify-between text-center min-h-[90px]",
+                    isLunchBreak
+                      ? "bg-amber-50/70 border-amber-200"
+                      : "bg-slate-50/80 border-slate-200"
+                  )}
+                >
+                  <div className="flex items-center justify-between border-b border-black/5 pb-1 mb-1.5 text-xs text-slate-500">
+                    <span className="font-bold">{timingSlotDisplayLabel(slot)}</span>
+                    <span className="text-[10px]">{slot.startTime}–{slot.endTime}</span>
+                  </div>
+                  <span className={cn("text-xs font-bold", isLunchBreak ? "text-amber-900" : "text-slate-700")}>
+                    {timingSlotDisplayLabel(slot)}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={slot.id}
+                type="button"
+                onClick={() => onSlotClick(slot, masterEntry)}
+                className={cn(
+                  "rounded-xl border p-3 flex flex-col justify-between text-left min-h-[96px] shadow-2xs hover:shadow-md transition-all cursor-pointer",
+                  changed
+                    ? "border-rose-300 bg-rose-50/60 ring-1 ring-rose-200"
+                    : masterEntry?.customLabel
+                    ? "border-purple-200 bg-purple-50/40"
+                    : "border-slate-200 bg-white"
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-1.5">
+                    <span className="text-xs font-bold uppercase tracking-wide text-slate-800">
+                      {slot.label}
+                    </span>
+                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {slot.startTime}–{slot.endTime}
+                    </span>
+                  </div>
+
+                  {masterEntry?.customLabel ? (
+                    <div>
+                      <p className="text-xs font-bold uppercase text-purple-900">
+                        {masterEntry.customLabel}
+                      </p>
+                      <p className="text-[10px] text-purple-600 mt-0.5">Free / Special</p>
+                    </div>
+                  ) : hasContent ? (
+                    <div>
+                      <p className="text-xs font-bold uppercase text-navy-900 line-clamp-2">
+                        {displaySubjectName || "Unassigned"}
+                      </p>
+                      {displaySubjectCode && (
+                        <p className="text-[10px] text-slate-500 mt-0.5">{displaySubjectCode}</p>
+                      )}
+                      {displayFacultyName && (
+                        <p className="text-[10px] font-semibold text-slate-700 mt-1 truncate">
+                          {displayFacultyName}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Free Period</p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-100">
+                  {changed ? (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-rose-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                      Changed
+                    </span>
+                  ) : hasContent ? (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Actual
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-slate-400">Available</span>
+                  )}
+                  <Edit2 className="h-3 w-3 text-slate-400" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TodayTimetableView() {
   const { filters, masters, setFilters } = useAcademicContext();
   const { authorization, hasPermission } = useAuth();
@@ -1165,6 +1560,17 @@ export function TodayTimetableView() {
   const [allBatchesLoading, setAllBatchesLoading] = useState(false);
   const [allBatchesError, setAllBatchesError] = useState<string | null>(null);
 
+  // Selected semester tab (e.g. 'all', '1-1', '1-2', etc.)
+  const [selectedSemesterTab, setSelectedSemesterTab] = useState<string>("all");
+
+  const filteredBatchesData = useMemo(() => {
+    if (selectedSemesterTab === "all") return allBatchesData;
+    const [yearStr, semStr] = selectedSemesterTab.split("-");
+    const y = Number(yearStr);
+    const s = Number(semStr);
+    return allBatchesData.filter((b) => b.year === y && b.semester === s);
+  }, [allBatchesData, selectedSemesterTab]);
+
   const [editingSlot, setEditingSlot] = useState<{
     slot: { id: number; label: string; startTime: string; endTime: string };
     masterEntry: SlotCellEntry | null;
@@ -1202,34 +1608,20 @@ export function TodayTimetableView() {
       }
     }
 
-    // 2. Batch: Preserve 'all' if user selected All Batches, otherwise initialize if empty
-    if (!filters.batch) {
+    // 2. Batch: For Today Timetable, Batch is removed from filters, so always 'all'
+    if (filters.batch !== "all") {
       updates.batch = "all";
     }
 
-    // 3. Section (only when a specific batch is chosen)
-    const curBranch = masters.branches.find((b) => b.id === filters.branchId);
-    if (curBranch?.hasSections && filters.section === "all" && filters.batch !== "all") {
-      const branchSections = masters.sections.filter((s) => s.branchId === filters.branchId);
-      if (branchSections.length > 0) {
-        updates.section = branchSections[0].name;
-      }
+    // 3. Section: Always 'all' since Section is removed from filters
+    if (filters.section !== "all") {
+      updates.section = "all";
     }
 
     // 4. Academic Year
     if (!filters.academicYear) {
       const defYear = masters.defaults?.academicYear || masters.academicYears[0]?.label || "2024-2025";
       if (defYear) updates.academicYear = defYear;
-    }
-
-    // 5. Default Year & Semester if 'all' and not in All Batches mode
-    if (filters.batch !== "all") {
-      if (filters.year === "all") {
-        updates.year = 1;
-      }
-      if (filters.semester === "all") {
-        updates.semester = 1;
-      }
     }
 
     if (Object.keys(updates).length > 0) {
@@ -1242,8 +1634,6 @@ export function TodayTimetableView() {
     filters.batch,
     filters.section,
     filters.academicYear,
-    filters.year,
-    filters.semester,
     masters,
     setFilters,
   ]);
@@ -1500,6 +1890,15 @@ export function TodayTimetableView() {
     return cell.entry;
   }
 
+  function getSingleMasterCell(slotId: number): SlotCell | null {
+    return dayGrid[slotId] ?? null;
+  }
+
+  function getCohortMasterCell(cohort: AllBatchesCohort, slotId: number): SlotCell | null {
+    const dayCellMap = (cohort.planner?.grid?.[selectedDayName] ?? {}) as Record<number, SlotCell>;
+    return dayCellMap[slotId] ?? null;
+  }
+
   function getCohortMasterEntry(cohort: AllBatchesCohort, slotId: number): SlotCellEntry | null {
     const dayCellMap = (cohort.planner?.grid?.[selectedDayName] ?? {}) as Record<number, SlotCell>;
     const cell = dayCellMap[slotId];
@@ -1557,7 +1956,7 @@ export function TodayTimetableView() {
   const isSunday = fromYMD(selectedDate).getDay() === 0;
   const isDayOff = planner?.ready && !isSunday && daySlots.length === 0;
   const missingLabel = !filtersComplete
-    ? "Please select College, Course, Branch, and Batch from the filter bar to view Today's timetable."
+    ? "Please select College and Branch from the filter bar to view Today's timetable."
     : null;
 
 
@@ -1722,19 +2121,33 @@ export function TodayTimetableView() {
         </div>
       </div>
 
-      {/* Semester Switcher Bar (only when viewing a specific batch) */}
-      {!isAllBatchesMode && filters.branchId !== "all" && semesterPills.length > 0 && (
+      {/* Semester Switcher Tabs (All Semesters, 1-1, 1-2, 2-1, 2-2, etc.) */}
+      {filters.branchId !== "all" && semesterPills.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider px-2">Semester:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedSemesterTab("all")}
+              className={cn(
+                "px-3.5 py-1 text-xs font-bold rounded-lg transition-all border",
+                selectedSemesterTab === "all"
+                  ? "bg-navy-900 text-white border-navy-900 shadow-xs ring-2 ring-navy-200"
+                  : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100",
+              )}
+            >
+              All Semesters ({allBatchesData.length})
+            </button>
             {semesterPills.map((pill) => {
-              const isSelected =
-                Number(filters.year) === pill.year && Number(filters.semester) === pill.semester;
+              const isSelected = selectedSemesterTab === pill.label;
+              const cohortCount = allBatchesData.filter(
+                (b) => b.year === pill.year && b.semester === pill.semester,
+              ).length;
               return (
                 <button
                   key={pill.label}
                   type="button"
-                  onClick={() => setFilters({ year: pill.year, semester: pill.semester })}
+                  onClick={() => setSelectedSemesterTab(pill.label)}
                   className={cn(
                     "px-3.5 py-1 text-xs font-bold rounded-lg transition-all border",
                     isSelected
@@ -1742,13 +2155,17 @@ export function TodayTimetableView() {
                       : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300",
                   )}
                 >
-                  {pill.label}
+                  {pill.label} {cohortCount > 0 ? `(${cohortCount})` : ""}
                 </button>
               );
             })}
           </div>
           <div className="text-xs text-slate-500 pr-2">
-            Selected: <span className="font-bold text-slate-800">Year {filters.year !== "all" ? filters.year : 1} · Sem {filters.semester !== "all" ? filters.semester : 1}</span>
+            {selectedSemesterTab === "all" ? (
+              <span>Showing <strong>all running cohorts</strong></span>
+            ) : (
+              <span>Showing <strong>Semester {selectedSemesterTab}</strong></span>
+            )}
           </div>
         </div>
       )}
@@ -1888,7 +2305,7 @@ export function TodayTimetableView() {
 
           {!allBatchesLoading &&
             !allBatchesError &&
-            allBatchesData.map((cohort) => {
+            filteredBatchesData.map((cohort) => {
               const cohortSlots = (cohort.planner?.slotsByDay?.[selectedDayName] ?? []).filter(
                 (slot) => slot.isActive !== false,
               );
@@ -1937,131 +2354,17 @@ export function TodayTimetableView() {
                     </div>
                   )}
 
-                  {/* SINGLE LINE PERIODS for this cohort */}
+                  {/* PERIOD GRID without horizontal scroll */}
                   {!isCohortDayOff && !isSunday && cohortSlots.length > 0 && (
-                    <div className="flex items-center gap-2.5 overflow-x-auto pb-2 pt-1 scrollbar-thin">
-                      {cohortSlots.map((slot) => {
-                        const isBreak = isNonClassTimingSlot(slot);
-                        const masterEntry = getCohortMasterEntry(cohort, slot.id);
-                        const override = cohort.overrides?.[slot.id] ?? null;
-                        const changed = isCohortPeriodChanged(cohort, slot.id);
-
-                        const displaySubjectName =
-                          override?.subjectName ||
-                          masterEntry?.customLabel ||
-                          masterEntry?.subjectName ||
-                          masterEntry?.subjectCode;
-                        const displayFacultyName =
-                          override?.facultyName || masterEntry?.facultyName;
-                        const hasContent = Boolean(displaySubjectName || displayFacultyName);
-
-                        if (isBreak) {
-                          return (
-                            <div
-                              key={slot.id}
-                              className={cn(
-                                "flex flex-col justify-center rounded-xl border px-3 py-1.5 text-center text-xs font-semibold h-[56px] min-w-[105px] shrink-0",
-                                timingSlotCellClass(slot),
-                              )}
-                            >
-                              <span className="text-xs font-bold leading-tight truncate">
-                                {timingSlotDisplayLabel(slot)}
-                              </span>
-                              <span className="text-[10px] font-normal opacity-75 mt-0.5 leading-tight">
-                                {slot.startTime}–{slot.endTime}
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <button
-                            key={slot.id}
-                            type="button"
-                            onClick={() => setEditingSlot({ slot, masterEntry, cohort })}
-                            className={cn(
-                              "group relative flex flex-col justify-between rounded-xl border-2 px-3 py-1.5 text-left transition-all h-[56px] min-w-[210px] max-w-[250px] shrink-0 shadow-xs hover:shadow-md cursor-pointer",
-                              !hasContent
-                                ? "border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-slate-100"
-                                : changed
-                                ? "border-rose-300 bg-rose-50/70 hover:border-rose-400 hover:bg-rose-100/90"
-                                : "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400 hover:bg-emerald-100/90",
-                            )}
-                            title={`Click to view comparison and details for ${slot.label}`}
-                          >
-                            {/* Top row */}
-                            <div className="flex items-center justify-between gap-1 w-full leading-none">
-                              <div className="flex items-center gap-1.5 truncate">
-                                <span
-                                  className={cn(
-                                    "text-[11px] font-bold uppercase tracking-wider",
-                                    changed
-                                      ? "text-rose-700"
-                                      : hasContent
-                                      ? "text-emerald-800"
-                                      : "text-slate-500",
-                                  )}
-                                >
-                                  {slot.label}
-                                </span>
-                                <span className="text-[10px] font-medium text-slate-400 shrink-0">
-                                  ({slot.startTime}–{slot.endTime})
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                {changed ? (
-                                  <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-extrabold text-rose-700 border border-rose-200">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
-                                    <span>Changed</span>
-                                  </span>
-                                ) : hasContent ? (
-                                  <span className="inline-flex items-center gap-1 rounded bg-emerald-100/90 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-800 border border-emerald-200">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                    <span>Actual</span>
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-400 font-medium">Free</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Bottom row */}
-                            <div className="w-full flex items-center justify-between gap-1 leading-tight text-xs overflow-hidden">
-                              {hasContent ? (
-                                <p
-                                  className={cn(
-                                    "truncate font-semibold text-xs",
-                                    changed ? "text-rose-950" : "text-emerald-950",
-                                  )}
-                                >
-                                  <span>{displaySubjectName || "Unassigned"}</span>
-                                  {displayFacultyName && (
-                                    <span
-                                      className={cn(
-                                        "font-normal ml-1",
-                                        changed ? "text-rose-700" : "text-emerald-700",
-                                      )}
-                                    >
-                                      · {displayFacultyName}
-                                    </span>
-                                  )}
-                                </p>
-                              ) : (
-                                <p className="text-[11px] text-slate-400 italic">Free Period</p>
-                              )}
-
-                              <Edit2
-                                className={cn(
-                                  "h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0",
-                                  changed ? "text-rose-600" : "text-emerald-700",
-                                )}
-                              />
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <TodayPeriodGrid
+                      slots={cohortSlots}
+                      getMasterCell={(slotId) => getCohortMasterCell(cohort, slotId)}
+                      getOverride={(slotId) => cohort.overrides?.[slotId] ?? null}
+                      isChanged={(slotId) => isCohortPeriodChanged(cohort, slotId)}
+                      onSlotClick={(slot, masterEntry) =>
+                        setEditingSlot({ slot, masterEntry, cohort })
+                      }
+                    />
                   )}
                 </div>
               );
@@ -2095,130 +2398,15 @@ export function TodayTimetableView() {
                 </Card>
               )}
 
-              {/* SINGLE LINE PERIODS for single batch */}
+              {/* PERIOD GRID for single batch without horizontal scroll */}
               {!isDayOff && !isSunday && daySlots.length > 0 && (
-                <div className="flex items-center gap-2.5 overflow-x-auto pb-2 pt-1 scrollbar-thin">
-                  {daySlots.map((slot) => {
-                    const isBreak = isNonClassTimingSlot(slot);
-                    const masterEntry = getMasterEntry(slot.id);
-                    const override = overrides[slot.id] ?? null;
-                    const changed = isPeriodChanged(slot.id);
-
-                    const displaySubjectName =
-                      override?.subjectName ||
-                      masterEntry?.customLabel ||
-                      masterEntry?.subjectName ||
-                      masterEntry?.subjectCode;
-                    const displayFacultyName = override?.facultyName || masterEntry?.facultyName;
-                    const hasContent = Boolean(displaySubjectName || displayFacultyName);
-
-                    if (isBreak) {
-                      return (
-                        <div
-                          key={slot.id}
-                          className={cn(
-                            "flex flex-col justify-center rounded-xl border px-3 py-1.5 text-center text-xs font-semibold h-[56px] min-w-[105px] shrink-0",
-                            timingSlotCellClass(slot),
-                          )}
-                        >
-                          <span className="text-xs font-bold leading-tight truncate">
-                            {timingSlotDisplayLabel(slot)}
-                          </span>
-                          <span className="text-[10px] font-normal opacity-75 mt-0.5 leading-tight">
-                            {slot.startTime}–{slot.endTime}
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        onClick={() => setEditingSlot({ slot, masterEntry })}
-                        className={cn(
-                          "group relative flex flex-col justify-between rounded-xl border-2 px-3 py-1.5 text-left transition-all h-[56px] min-w-[210px] max-w-[250px] shrink-0 shadow-xs hover:shadow-md cursor-pointer",
-                          !hasContent
-                            ? "border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-slate-100"
-                            : changed
-                            ? "border-rose-300 bg-rose-50/70 hover:border-rose-400 hover:bg-rose-100/90"
-                            : "border-emerald-300 bg-emerald-50/70 hover:border-emerald-400 hover:bg-emerald-100/90",
-                        )}
-                        title={`Click to view comparison and details for ${slot.label}`}
-                      >
-                        {/* Top row */}
-                        <div className="flex items-center justify-between gap-1 w-full leading-none">
-                          <div className="flex items-center gap-1.5 truncate">
-                            <span
-                              className={cn(
-                                "text-[11px] font-bold uppercase tracking-wider",
-                                changed
-                                  ? "text-rose-700"
-                                  : hasContent
-                                  ? "text-emerald-800"
-                                  : "text-slate-500",
-                              )}
-                            >
-                              {slot.label}
-                            </span>
-                            <span className="text-[10px] font-medium text-slate-400 shrink-0">
-                              ({slot.startTime}–{slot.endTime})
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {changed ? (
-                              <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-extrabold text-rose-700 border border-rose-200">
-                                <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
-                                <span>Changed</span>
-                              </span>
-                            ) : hasContent ? (
-                              <span className="inline-flex items-center gap-1 rounded bg-emerald-100/90 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-800 border border-emerald-200">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                <span>Actual</span>
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-medium">Free</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Bottom row */}
-                        <div className="w-full flex items-center justify-between gap-1 leading-tight text-xs overflow-hidden">
-                          {hasContent ? (
-                            <p
-                              className={cn(
-                                "truncate font-semibold text-xs",
-                                changed ? "text-rose-950" : "text-emerald-950",
-                              )}
-                            >
-                              <span>{displaySubjectName || "Unassigned"}</span>
-                              {displayFacultyName && (
-                                <span
-                                  className={cn(
-                                    "font-normal ml-1",
-                                    changed ? "text-rose-700" : "text-emerald-700",
-                                  )}
-                                >
-                                  · {displayFacultyName}
-                                </span>
-                              )}
-                            </p>
-                          ) : (
-                            <p className="text-[11px] text-slate-400 italic">Free Period</p>
-                          )}
-
-                          <Edit2
-                            className={cn(
-                              "h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0",
-                              changed ? "text-rose-600" : "text-emerald-700",
-                            )}
-                          />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <TodayPeriodGrid
+                  slots={daySlots}
+                  getMasterCell={(slotId) => getSingleMasterCell(slotId)}
+                  getOverride={(slotId) => overrides[slotId] ?? null}
+                  isChanged={(slotId) => isPeriodChanged(slotId)}
+                  onSlotClick={(slot, masterEntry) => setEditingSlot({ slot, masterEntry })}
+                />
               )}
             </>
           )}

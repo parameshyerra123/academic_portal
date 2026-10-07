@@ -7,6 +7,9 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
+import { CombineSectionsModal } from "@/features/timetables/CombineSectionsModal";
+import { SectionMultiSelectFilter } from "@/features/timetables/SectionMultiSelectFilter";
+import { CheckCircle2 } from "lucide-react";
 
 const selectClassName =
   "h-11 sm:h-9 w-full sm:w-auto sm:min-w-[140px] rounded-md border border-border bg-white px-2 text-sm text-foreground outline-none focus:border-navy-800";
@@ -31,9 +34,15 @@ const HIDDEN_ON = [
 
 type Props = {
   title?: string;
+  hideBatch?: boolean;
+  hideSection?: boolean;
 };
 
-export function AcademicFilterBar({ title = "Filters" }: Props) {
+export function AcademicFilterBar({
+  title = "Filters",
+  hideBatch,
+  hideSection,
+}: Props) {
   const pathname = usePathname();
   const { masters, loading, filters, setFilters, resetFilters, studentsListStats } =
     useAcademicContext();
@@ -41,6 +50,14 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
   const [searchDraft, setSearchDraft] = useState(filters.q);
   const [studentStatuses, setStudentStatuses] = useState<string[]>([]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [combineModalOpen, setCombineModalOpen] = useState(false);
+  const [combineTickedSections, setCombineTickedSections] = useState<string[]>([]);
+  const [combineSuccessMessage, setCombineSuccessMessage] = useState<string | null>(null);
+
+  const isTodayTimetable =
+    pathname === "/today-timetable" || pathname.startsWith("/today-timetable/");
+  const shouldHideBatch = Boolean(hideBatch) || isTodayTimetable;
+  const shouldHideSection = Boolean(hideSection) || isTodayTimetable;
 
   const isDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/");
   const hiddenOnPath = HIDDEN_ON.some(
@@ -61,11 +78,11 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
   const isTimetablesPage =
     pathname === "/timetables" ||
     pathname.startsWith("/timetables/") ||
-    pathname === "/today-timetable" ||
-    pathname.startsWith("/today-timetable/");
+    isTodayTimetable;
   const isAttendanceAnalytics =
     pathname === "/attendance-analytics" || pathname.startsWith("/attendance-analytics");
-  const usesBatchProgressYear = isTimetablesPage || isMentoringPage || isAttendanceAnalytics;
+  const usesBatchProgressYear =
+    !isTodayTimetable && (isTimetablesPage || isMentoringPage || isAttendanceAnalytics);
 
   useEffect(() => {
     setSearchDraft(filters.q);
@@ -200,6 +217,11 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
       ? null
       : coursesForCollege.find((course) => course.id === filters.courseId) ?? null;
 
+  const selectedCollege =
+    filters.collegeId === "all" || !masters
+      ? null
+      : masters.colleges.find((c) => c.id === filters.collegeId) ?? null;
+
   const batchesForBranch = useMemo(() => {
     if (!masters || !selectedBranch) return [];
     const values = new Set<string>();
@@ -250,6 +272,7 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
   // On Timetables / Mentoring, batch triggers auto year+semester from batch progress (read-only).
   // On Attendance Analytics, batch auto-prefills Year + Semester on initial state, but keeps them selectable.
   const autoYearSemesterFromBatch =
+    !shouldHideBatch &&
     (isTimetablesPage || isMentoringPage) &&
     filters.batch !== "all" &&
     filters.collegeId !== "all" &&
@@ -493,29 +516,31 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
 
             {/* ROW 2: Batch, Year, Semester, Section, Status & Reset */}
             <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2.5 w-full pt-0.5">
-              <FilterField label="Batch">
-                <select
-                  className={selectClassName}
-                  value={filters.batch === "all" ? "all" : filters.batch}
-                  disabled={loading || !masters || !selectedBranch}
-                  onChange={(e) => {
-                    const nextBatch = e.target.value === "all" ? "all" : e.target.value;
-                    setFilters({
-                      batch: nextBatch,
-                      ...(showSearch && nextBatch !== "all"
-                        ? { year: "all" as const, semester: "all" as const }
-                        : {}),
-                    });
-                  }}
-                >
-                  <option value="all">All Batches</option>
-                  {batchesForBranch.map((batch) => (
-                    <option key={batch} value={batch}>
-                      {batch}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+              {!shouldHideBatch && (
+                <FilterField label="Batch">
+                  <select
+                    className={selectClassName}
+                    value={filters.batch === "all" ? "all" : filters.batch}
+                    disabled={loading || !masters || !selectedBranch}
+                    onChange={(e) => {
+                      const nextBatch = e.target.value === "all" ? "all" : e.target.value;
+                      setFilters({
+                        batch: nextBatch,
+                        ...(showSearch && nextBatch !== "all"
+                          ? { year: "all" as const, semester: "all" as const }
+                          : {}),
+                      });
+                    }}
+                  >
+                    <option value="all">All Batches</option>
+                    {batchesForBranch.map((batch) => (
+                      <option key={batch} value={batch}>
+                        {batch}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+              )}
 
               {showYearSemesterFilters ? (
                 <>
@@ -562,25 +587,38 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
                 </>
               ) : null}
 
-              {showSectionFilter ? (
+              {!shouldHideSection && showSectionFilter ? (
                 <FilterField label="Section">
-                  <select
-                    className={selectClassName}
-                    value={filters.section}
-                    disabled={loading || !masters}
-                    onChange={(e) =>
-                      setFilters({
-                        section: e.target.value === "all" ? "all" : e.target.value,
-                      })
-                    }
-                  >
-                    <option value="all">All Sections</option>
-                    {sectionsForBranch.map((section) => (
-                      <option key={section} value={section}>
-                        {section}
-                      </option>
-                    ))}
-                  </select>
+                  {isTimetablesPage ? (
+                    <SectionMultiSelectFilter
+                      sections={sectionsForBranch}
+                      currentSection={filters.section}
+                      disabled={loading || !masters}
+                      onChangeSection={(sec) => setFilters({ section: sec })}
+                      onOpenCombine={(ticked) => {
+                        setCombineTickedSections(ticked ?? []);
+                        setCombineModalOpen(true);
+                      }}
+                    />
+                  ) : (
+                    <select
+                      className={selectClassName}
+                      value={filters.section}
+                      disabled={loading || !masters}
+                      onChange={(e) =>
+                        setFilters({
+                          section: e.target.value === "all" ? "all" : e.target.value,
+                        })
+                      }
+                    >
+                      <option value="all">All Sections</option>
+                      {sectionsForBranch.map((section) => (
+                        <option key={section} value={section}>
+                          {section}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </FilterField>
               ) : null}
 
@@ -751,29 +789,31 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
           </select>
         </FilterField>
 
-        <FilterField label="Batch">
-          <select
-            className={selectClassName}
-            value={filters.batch === "all" ? "all" : filters.batch}
-            disabled={loading || !masters || !selectedBranch}
-            onChange={(e) => {
-              const nextBatch = e.target.value === "all" ? "all" : e.target.value;
-              setFilters({
-                batch: nextBatch,
-                ...(usesBatchProgressYear
-                  ? { year: "all" as const, semester: "all" as const }
-                  : {}),
-              });
-            }}
-          >
-            <option value="all">All Batches</option>
-            {batchesForBranch.map((batch) => (
-              <option key={batch} value={batch}>
-                {batch}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        {!shouldHideBatch && (
+          <FilterField label="Batch">
+            <select
+              className={selectClassName}
+              value={filters.batch === "all" ? "all" : filters.batch}
+              disabled={loading || !masters || !selectedBranch}
+              onChange={(e) => {
+                const nextBatch = e.target.value === "all" ? "all" : e.target.value;
+                setFilters({
+                  batch: nextBatch,
+                  ...(usesBatchProgressYear
+                    ? { year: "all" as const, semester: "all" as const }
+                    : {}),
+                });
+              }}
+            >
+              <option value="all">All Batches</option>
+              {batchesForBranch.map((batch) => (
+                <option key={batch} value={batch}>
+                  {batch}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+        )}
 
         {autoYearSemesterFromBatch ? (
           <>
@@ -835,31 +875,44 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
           </>
         ) : null}
 
-        {showSectionFilter ? (
+        {!shouldHideSection && showSectionFilter ? (
           <FilterField label="Section">
-            <select
-              className={selectClassName}
-              value={filters.section}
-              disabled={loading || !masters}
-              onChange={(e) =>
-                setFilters({
-                  section: e.target.value === "all" ? "all" : e.target.value,
-                })
-              }
-            >
-              <option value="all">All Sections</option>
-              {sectionsForBranch.map((section) => (
-                <option key={section} value={section}>
-                  {section}
-                </option>
-              ))}
-            </select>
+            {isTimetablesPage ? (
+              <SectionMultiSelectFilter
+                sections={sectionsForBranch}
+                currentSection={filters.section}
+                disabled={loading || !masters}
+                onChangeSection={(sec) => setFilters({ section: sec })}
+                onOpenCombine={(ticked) => {
+                  setCombineTickedSections(ticked ?? []);
+                  setCombineModalOpen(true);
+                }}
+              />
+            ) : (
+              <select
+                className={selectClassName}
+                value={filters.section}
+                disabled={loading || !masters}
+                onChange={(e) =>
+                  setFilters({
+                    section: e.target.value === "all" ? "all" : e.target.value,
+                  })
+                }
+              >
+                <option value="all">All Sections</option>
+                {sectionsForBranch.map((section) => (
+                  <option key={section} value={section}>
+                    {section}
+                  </option>
+                ))}
+              </select>
+            )}
           </FilterField>
         ) : null}
       </FilterBar>
       )}
 
-      {selectedBranch && !showSectionFilter ? (
+      {selectedBranch && !showSectionFilter && !shouldHideSection ? (
         <p className="mt-1 text-xs text-slate-500">
           Selected branch has no sections — filters apply at branch level.
         </p>
@@ -875,6 +928,51 @@ export function AcademicFilterBar({ title = "Filters" }: Props) {
             : ""}
         </p>
       ) : null}
+
+      {combineSuccessMessage && (
+        <div className="mt-2.5 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <span>{combineSuccessMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCombineSuccessMessage(null)}
+            className="text-emerald-700 hover:text-emerald-950 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {isTimetablesPage && (
+        <CombineSectionsModal
+          isOpen={combineModalOpen}
+          onClose={() => setCombineModalOpen(false)}
+          availableSections={sectionsForBranch}
+          initialTickedSections={combineTickedSections}
+          currentSection={filters.section}
+          context={{
+            collegeId: filters.collegeId,
+            courseId: filters.courseId,
+            branchId: filters.branchId,
+            academicYear: filters.academicYear,
+            batch: filters.batch,
+            year: filters.year,
+            semester: filters.semester,
+            collegeName: selectedCollege?.name,
+            courseName: selectedCourse?.name,
+            branchName: selectedBranch?.name,
+          }}
+          onSuccess={(mainSec, targetSecs) => {
+            setCombineSuccessMessage(
+              `Timetable combined! Section ${targetSecs.join(", ")} now has the identical schedule as Section ${mainSec}.`,
+            );
+            setTimeout(() => setCombineSuccessMessage(null), 8000);
+            setFilters({ section: targetSecs[0] ?? mainSec });
+          }}
+        />
+      )}
     </div>
   );
 }
