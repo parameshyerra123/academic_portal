@@ -176,6 +176,94 @@ function mapSessionCard(
   };
 }
 
+function mergeSessionCards(
+  sessionCards: Array<
+    ReturnType<typeof mapSessionCard> & {
+      collegeName: string;
+      courseName: string;
+      branchName: string;
+    }
+  >,
+) {
+  const map = new Map<string, Array<(typeof sessionCards)[0]>>();
+
+  for (const card of sessionCards) {
+    if (!card.facultyStaffLinkId || !card.startTime || !card.date) {
+      const uniqueKey = `single_${card.id}`;
+      map.set(uniqueKey, [card]);
+      continue;
+    }
+
+    const subKey =
+      card.subjectId != null
+        ? `id_${card.subjectId}`
+        : `code_${(card.subjectCode || card.subjectName || "").toLowerCase().trim()}`;
+    const branchKey = card.branchId != null ? String(card.branchId) : "";
+    const key = `${card.date}|${card.startTime}|${card.endTime || ""}|${card.facultyStaffLinkId}|${subKey}|${branchKey}`;
+
+    const existing = map.get(key);
+    if (existing) {
+      existing.push(card);
+    } else {
+      map.set(key, [card]);
+    }
+  }
+
+  const result: Array<
+    (typeof sessionCards)[0] & {
+      sessionIds: number[];
+      sections: string[];
+    }
+  > = [];
+
+  for (const group of map.values()) {
+    if (group.length === 1) {
+      const single = group[0];
+      result.push({
+        ...single,
+        sessionIds: [single.id],
+        sections: single.section ? [single.section] : [],
+      });
+      continue;
+    }
+
+    const primary = group[0];
+    const sessionIds = group.map((s) => s.id);
+    const rawSections = group.map((s) => s.section).filter(Boolean) as string[];
+    const uniqueSections = Array.from(new Set(rawSections));
+    const combinedSection = uniqueSections.join(", ") || primary.section;
+
+    const allPosted = group.every((s) => s.posted);
+    const anyHoliday = group.some((s) => s.holiday);
+    const anyIsMySession = group.some((s) => s.isMySession);
+
+    const rooms = Array.from(new Set(group.map((s) => s.roomLabel).filter(Boolean))) as string[];
+    const roomLabel = rooms.join(", ") || primary.roomLabel;
+
+    const presentCount = group.reduce((sum, s) => sum + (s.presentCount || 0), 0);
+    const absentCount = group.reduce((sum, s) => sum + (s.absentCount || 0), 0);
+    const odCount = group.reduce((sum, s) => sum + (s.odCount || 0), 0);
+    const leaveCount = group.reduce((sum, s) => sum + (s.leaveCount || 0), 0);
+
+    result.push({
+      ...primary,
+      section: combinedSection,
+      sections: uniqueSections,
+      sessionIds,
+      roomLabel,
+      posted: allPosted,
+      sessionStatus: anyHoliday ? "holiday" : allPosted ? "posted" : "scheduled",
+      isMySession: anyIsMySession,
+      presentCount,
+      absentCount,
+      odCount,
+      leaveCount,
+    });
+  }
+
+  return result;
+}
+
 export async function listAttendanceSessions(filters: AttendanceListFilters) {
   const date = filters.date || todayIso();
   const today = todayIso();
@@ -350,7 +438,7 @@ export async function listAttendanceSessions(filters: AttendanceListFilters) {
     filters.currentStaffLinkId !== undefined
       ? filters.currentStaffLinkId
       : filters.facultyStaffLinkId ?? filters.includeFacultyStaffLinkId;
-  const sessions = rows
+  const rawSessions = rows
     .map((row) => {
       const holiday = holidays.some((item) =>
         holidayAppliesToScope(item, holidayScopeFromRow(row)),
@@ -364,6 +452,8 @@ export async function listAttendanceSessions(filters: AttendanceListFilters) {
       };
     })
     .filter((session) => !session.holiday);
+
+  const sessions = mergeSessionCards(rawSessions);
 
   const byCollegeMap = new Map<
     number,
@@ -542,14 +632,21 @@ async function loadRosterStudents(row: SessionListRow) {
     params.push(row.semester_number);
   }
   if (row.section_name) {
+    const raw = row.section_name.trim();
+    const shortSec = raw.replace(/^section\s+/i, "").trim();
     where.push(`
-      TRIM(COALESCE(
+      (TRIM(COALESCE(
         ss.section_name COLLATE utf8mb4_unicode_ci,
         s.section COLLATE utf8mb4_unicode_ci,
         '' COLLATE utf8mb4_unicode_ci
       )) = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR TRIM(COALESCE(
+        ss.section_name COLLATE utf8mb4_unicode_ci,
+        s.section COLLATE utf8mb4_unicode_ci,
+        '' COLLATE utf8mb4_unicode_ci
+      )) = TRIM(?) COLLATE utf8mb4_unicode_ci)
     `);
-    params.push(row.section_name);
+    params.push(raw, shortSec);
   }
 
   return queryStudent<StudentRow[]>(
@@ -565,6 +662,83 @@ async function loadRosterStudents(row: SessionListRow) {
     `,
     params,
   );
+}
+
+async function findSiblingSessions(row: SessionListRow): Promise<SessionListRow[]> {
+  if (!row.faculty_staff_link_id || !row.start_time || !row.session_date) {
+    return [row];
+  }
+
+  const where = [
+    "cs.session_date = ?",
+    "TIME_FORMAT(cs.start_time, '%H:%i') = TIME_FORMAT(?, '%H:%i')",
+    "TIME_FORMAT(cs.end_time, '%H:%i') = TIME_FORMAT(?, '%H:%i')",
+    "cs.faculty_staff_link_id = ?",
+    "cs.status <> 'cancelled'",
+    "cs.branch_id = ?",
+  ];
+  const params: unknown[] = [
+    asDate(row.session_date),
+    row.start_time,
+    row.end_time,
+    row.faculty_staff_link_id,
+    row.branch_id,
+  ];
+
+  if (row.subject_id != null) {
+    where.push("cs.subject_id = ?");
+    params.push(row.subject_id);
+  } else if (row.subject_code) {
+    where.push("cs.subject_code = ?");
+    params.push(row.subject_code);
+  }
+
+  const siblings = await queryAcademic<SessionListRow[]>(
+    `
+    SELECT
+      cs.id,
+      cs.plan_id,
+      cs.session_date,
+      cs.day_of_week,
+      cs.start_time,
+      cs.end_time,
+      cs.section_name,
+      cs.college_id,
+      p.course_id,
+      cs.branch_id,
+      p.batch,
+      p.year_of_study,
+      p.semester_number,
+      cs.subject_id,
+      cs.subject_code,
+      cs.subject_name,
+      cs.subject_type_snapshot,
+      cs.faculty_staff_link_id,
+      sl.display_name AS faculty_name,
+      cs.room_label,
+      ts.label AS slot_label,
+      cs.status,
+      ap.id AS post_id,
+      ap.present_count,
+      ap.absent_count,
+      ap.od_count,
+      ap.leave_count
+    FROM ap_class_sessions cs
+    INNER JOIN ap_timetable_plans p ON p.id = cs.plan_id
+    LEFT JOIN ap_staff_link sl ON sl.id = cs.faculty_staff_link_id
+    LEFT JOIN ap_timing_template_slots ts
+      ON ts.id = COALESCE(cs.timing_slot_id, cs.period_slot_id)
+    LEFT JOIN ap_attendance_posts ap ON ap.class_session_id = cs.id
+    WHERE ${where.join(" AND ")}
+    ORDER BY cs.section_name ASC, cs.id ASC
+    `,
+    params,
+  );
+
+  if (!siblings.length || !siblings.some((s) => Number(s.id) === Number(row.id))) {
+    return [row];
+  }
+  return siblings;
 }
 
 export async function getAttendanceSession(sessionId: number) {
@@ -591,49 +765,152 @@ export async function getAttendanceSession(sessionId: number) {
     );
   }
 
-  const [students, marks] = await Promise.all([
-    loadRosterStudents(row),
-    row.post_id
-      ? queryAcademic<
-          (RowDataPacket & {
-            student_db_id: number;
-            status: AttendanceMark;
-            remarks: string | null;
-          })[]
-        >(
-          `SELECT student_db_id, status, remarks FROM ap_attendance_post_students WHERE attendance_post_id = ?`,
-          [row.post_id],
-        )
-      : Promise.resolve([]),
-  ]);
+  const siblingRows = await findSiblingSessions(row);
 
-  const markByStudent = new Map(marks.map((m) => [Number(m.student_db_id), m]));
-  const mapped = mapSessionCard(row, false);
+  if (siblingRows.length <= 1) {
+    const [students, marks] = await Promise.all([
+      loadRosterStudents(row),
+      row.post_id
+        ? queryAcademic<
+            (RowDataPacket & {
+              student_db_id: number;
+              status: AttendanceMark;
+              remarks: string | null;
+            })[]
+          >(
+            `SELECT student_db_id, status, remarks FROM ap_attendance_post_students WHERE attendance_post_id = ?`,
+            [row.post_id],
+          )
+        : Promise.resolve([]),
+    ]);
+
+    const markByStudent = new Map(marks.map((m) => [Number(m.student_db_id), m]));
+    const mapped = mapSessionCard(row, false);
+
+    return {
+      session: {
+        ...mapped,
+        sessionIds: [Number(row.id)],
+        sections: row.section_name ? [row.section_name] : [],
+        time: [mapped.startTime, mapped.endTime].filter(Boolean).join(" – ") || "—",
+        studentCount: students.length,
+      },
+      posted: Boolean(row.post_id),
+      students: students.map((student) => {
+        const existing = markByStudent.get(Number(student.id));
+        return {
+          id: String(student.id),
+          studentDbId: Number(student.id),
+          name: student.student_name ?? "Unknown",
+          admissionNo: student.admission_number,
+          pinNo: student.pin_no ?? null,
+          course: student.course ?? null,
+          branch: student.branch ?? null,
+          year: student.current_year ?? null,
+          semester: student.current_semester ?? null,
+          section: row.section_name ?? null,
+          sessionId: Number(row.id),
+          hasPhoto: Boolean(student.has_photo),
+          status: normalizePostingMark(existing?.status),
+          remarks: existing?.remarks ?? null,
+        };
+      }),
+    };
+  }
+
+  // Merged sibling sessions
+  const postIds = siblingRows.map((r) => r.post_id).filter((id): id is number => id != null);
+  let marksByPost: (RowDataPacket & {
+    attendance_post_id: number;
+    student_db_id: number;
+    status: AttendanceMark;
+    remarks: string | null;
+  })[] = [];
+
+  if (postIds.length > 0) {
+    marksByPost = await queryAcademic<typeof marksByPost>(
+      `SELECT attendance_post_id, student_db_id, status, remarks
+       FROM ap_attendance_post_students
+       WHERE attendance_post_id IN (${postIds.map(() => "?").join(",")})`,
+      postIds,
+    );
+  }
+
+  const marksMap = new Map<string, { status: AttendanceMark; remarks: string | null }>();
+  for (const m of marksByPost) {
+    marksMap.set(`${m.attendance_post_id}_${m.student_db_id}`, m);
+  }
+
+  const allMergedStudents: Array<{
+    student: StudentRow;
+    section: string | null;
+    sessionId: number;
+    existingMark?: { status: AttendanceMark; remarks: string | null };
+  }> = [];
+
+  const seenStudentIds = new Set<number>();
+
+  for (const sib of siblingRows) {
+    const sibStudents = await loadRosterStudents(sib);
+    for (const s of sibStudents) {
+      if (seenStudentIds.has(Number(s.id))) continue;
+      seenStudentIds.add(Number(s.id));
+      const existing = sib.post_id
+        ? marksMap.get(`${sib.post_id}_${s.id}`)
+        : undefined;
+      allMergedStudents.push({
+        student: s,
+        section: sib.section_name,
+        sessionId: Number(sib.id),
+        existingMark: existing,
+      });
+    }
+  }
+
+  allMergedStudents.sort((a, b) => {
+    const aKey = a.student.pin_no?.trim() || a.student.admission_number;
+    const bKey = b.student.pin_no?.trim() || b.student.admission_number;
+    return aKey.localeCompare(bKey, undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  const primaryMapped = mapSessionCard(row, false);
+  const rawSections = siblingRows.map((s) => s.section_name).filter(Boolean) as string[];
+  const uniqueSections = Array.from(new Set(rawSections));
+  const combinedSection = uniqueSections.join(", ") || primaryMapped.section;
+  const allPosted = siblingRows.every((s) => Boolean(s.post_id));
+
+  const rooms = Array.from(new Set(siblingRows.map((s) => s.room_label).filter(Boolean))) as string[];
+  const roomLabel = rooms.join(", ") || primaryMapped.roomLabel;
 
   return {
     session: {
-      ...mapped,
-      time: [mapped.startTime, mapped.endTime].filter(Boolean).join(" – ") || "—",
-      studentCount: students.length,
+      ...primaryMapped,
+      id: Number(row.id),
+      sessionIds: siblingRows.map((s) => Number(s.id)),
+      section: combinedSection,
+      sections: uniqueSections,
+      roomLabel,
+      time: [primaryMapped.startTime, primaryMapped.endTime].filter(Boolean).join(" – ") || "—",
+      studentCount: allMergedStudents.length,
+      posted: allPosted,
     },
-    posted: Boolean(row.post_id),
-    students: students.map((student) => {
-      const existing = markByStudent.get(Number(student.id));
-      return {
-        id: String(student.id),
-        studentDbId: Number(student.id),
-        name: student.student_name ?? "Unknown",
-        admissionNo: student.admission_number,
-        pinNo: student.pin_no ?? null,
-        course: student.course ?? null,
-        branch: student.branch ?? null,
-        year: student.current_year ?? null,
-        semester: student.current_semester ?? null,
-        hasPhoto: Boolean(student.has_photo),
-        status: normalizePostingMark(existing?.status),
-        remarks: existing?.remarks ?? null,
-      };
-    }),
+    posted: allPosted,
+    students: allMergedStudents.map((item) => ({
+      id: String(item.student.id),
+      studentDbId: Number(item.student.id),
+      name: item.student.student_name ?? "Unknown",
+      admissionNo: item.student.admission_number,
+      pinNo: item.student.pin_no ?? null,
+      course: item.student.course ?? null,
+      branch: item.student.branch ?? null,
+      year: item.student.current_year ?? null,
+      semester: item.student.current_semester ?? null,
+      section: item.section ?? null,
+      sessionId: item.sessionId,
+      hasPhoto: Boolean(item.student.has_photo),
+      status: normalizePostingMark(item.existingMark?.status),
+      remarks: item.existingMark?.remarks ?? null,
+    })),
   };
 }
 
@@ -690,45 +967,19 @@ export async function postAttendance(
     );
   }
 
-  if (row.post_id && !input.editReason?.trim()) {
+  if (!input.students?.length) {
+    throw Object.assign(new Error("Student marks are required"), { status: 400 });
+  }
+
+  const siblingRows = await findSiblingSessions(row);
+
+  const allAlreadyPosted = siblingRows.every((s) => Boolean(s.post_id));
+  if (allAlreadyPosted && !input.editReason?.trim()) {
     throw Object.assign(
       new Error("Attendance already posted. Provide editReason to update."),
       { status: 409 },
     );
   }
-
-  const roster = await loadRosterStudents(row);
-  const rosterById = new Map(roster.map((s) => [Number(s.id), s]));
-  if (!input.students?.length) {
-    throw Object.assign(new Error("Student marks are required"), { status: 400 });
-  }
-
-  const marks = input.students.map((item) => {
-    const student = rosterById.get(Number(item.studentDbId));
-    if (!student) {
-      throw Object.assign(
-        new Error(`Student ${item.studentDbId} is not on this class roster`),
-        { status: 400 },
-      );
-    }
-    if (!POSTING_MARKS.includes(item.status)) {
-      throw Object.assign(
-        new Error(`Invalid status: ${item.status}. Only present or absent are allowed.`),
-        { status: 400 },
-      );
-    }
-    return {
-      studentDbId: Number(student.id),
-      admissionNumber: student.admission_number,
-      status: item.status,
-      remarks: item.remarks ?? null,
-    };
-  });
-
-  const present = marks.filter((m) => m.status === "present").length;
-  const absent = marks.filter((m) => m.status === "absent").length;
-  const od = marks.filter((m) => m.status === "od").length;
-  const leave = marks.filter((m) => m.status === "leave").length;
 
   const posterUserId =
     input.postedByUserId != null && Number.isFinite(Number(input.postedByUserId))
@@ -741,63 +992,119 @@ export async function postAttendance(
       displayName: "Unassigned faculty",
     }));
 
-  const postId = await withAcademicTransaction(async (conn) => {
-    let id = row.post_id ? Number(row.post_id) : null;
-    if (!id) {
-      const [insertResult] = await conn.execute(
-        `
-        INSERT INTO ap_attendance_posts
-          (class_session_id, posted_by_user_id, posted_by_staff_link_id, posted_at,
-           present_count, absent_count, od_count, leave_count, is_locked)
-        VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, 1)
-        `,
-        [sessionId, posterUserId, staffLinkId, present, absent, od, leave],
-      );
-      id = Number((insertResult as { insertId: number }).insertId);
-    } else {
+  const inputStudentMap = new Map(input.students.map((s) => [Number(s.studentDbId), s]));
+
+  let totalPresent = 0;
+  let totalAbsent = 0;
+  let totalOd = 0;
+  let totalLeave = 0;
+  let totalSubmittedMarks = 0;
+  const postIds: number[] = [];
+
+  await withAcademicTransaction(async (conn) => {
+    for (const sib of siblingRows) {
+      const sibRoster = await loadRosterStudents(sib);
+      const sibMarks: Array<{
+        studentDbId: number;
+        admissionNumber: string;
+        status: AttendanceMark;
+        remarks: string | null;
+      }> = [];
+
+      for (const st of sibRoster) {
+        const submitted = inputStudentMap.get(Number(st.id));
+        if (submitted) {
+          if (!POSTING_MARKS.includes(submitted.status)) {
+            throw Object.assign(
+              new Error(`Invalid status: ${submitted.status}. Only present or absent are allowed.`),
+              { status: 400 },
+            );
+          }
+          sibMarks.push({
+            studentDbId: Number(st.id),
+            admissionNumber: st.admission_number,
+            status: submitted.status,
+            remarks: submitted.remarks ?? null,
+          });
+        }
+      }
+
+      if (sibMarks.length === 0 && sibRoster.length > 0 && siblingRows.length === 1) {
+        throw Object.assign(new Error("Student marks are required"), { status: 400 });
+      }
+
+      const present = sibMarks.filter((m) => m.status === "present").length;
+      const absent = sibMarks.filter((m) => m.status === "absent").length;
+      const od = sibMarks.filter((m) => m.status === "od").length;
+      const leave = sibMarks.filter((m) => m.status === "leave").length;
+
+      totalPresent += present;
+      totalAbsent += absent;
+      totalOd += od;
+      totalLeave += leave;
+      totalSubmittedMarks += sibMarks.length;
+
+      let id = sib.post_id ? Number(sib.post_id) : null;
+      const effectiveEditReason = input.editReason?.trim() || (sib.post_id ? "Combined section attendance sync" : null);
+
+      if (!id) {
+        const [insertResult] = await conn.execute(
+          `
+          INSERT INTO ap_attendance_posts
+            (class_session_id, posted_by_user_id, posted_by_staff_link_id, posted_at,
+             present_count, absent_count, od_count, leave_count, is_locked)
+          VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, 1)
+          `,
+          [Number(sib.id), posterUserId, staffLinkId, present, absent, od, leave],
+        );
+        id = Number((insertResult as { insertId: number }).insertId);
+      } else {
+        await conn.execute(
+          `
+          UPDATE ap_attendance_posts
+          SET present_count = ?, absent_count = ?, od_count = ?, leave_count = ?,
+              edit_reason = ?, posted_at = NOW(), posted_by_user_id = ?,
+              posted_by_staff_link_id = ?
+          WHERE id = ?
+          `,
+          [present, absent, od, leave, effectiveEditReason, posterUserId, staffLinkId, id],
+        );
+        await conn.execute(
+          `DELETE FROM ap_attendance_post_students WHERE attendance_post_id = ?`,
+          [id],
+        );
+      }
+
+      for (const mark of sibMarks) {
+        await conn.execute(
+          `
+          INSERT INTO ap_attendance_post_students
+            (attendance_post_id, student_db_id, admission_number, status, remarks)
+          VALUES (?, ?, ?, ?, ?)
+          `,
+          [id, mark.studentDbId, mark.admissionNumber, mark.status, mark.remarks],
+        );
+      }
+
       await conn.execute(
-        `
-        UPDATE ap_attendance_posts
-        SET present_count = ?, absent_count = ?, od_count = ?, leave_count = ?,
-            edit_reason = ?, posted_at = NOW(), posted_by_user_id = ?,
-            posted_by_staff_link_id = ?
-        WHERE id = ?
-        `,
-        [present, absent, od, leave, input.editReason ?? null, posterUserId, staffLinkId, id],
+        `UPDATE ap_class_sessions SET status = 'posted' WHERE id = ?`,
+        [Number(sib.id)],
       );
-      await conn.execute(
-        `DELETE FROM ap_attendance_post_students WHERE attendance_post_id = ?`,
-        [id],
-      );
+
+      postIds.push(id);
     }
-
-    for (const mark of marks) {
-      await conn.execute(
-        `
-        INSERT INTO ap_attendance_post_students
-          (attendance_post_id, student_db_id, admission_number, status, remarks)
-        VALUES (?, ?, ?, ?, ?)
-        `,
-        [id, mark.studentDbId, mark.admissionNumber, mark.status, mark.remarks],
-      );
-    }
-
-    await conn.execute(
-      `UPDATE ap_class_sessions SET status = 'posted' WHERE id = ?`,
-      [sessionId],
-    );
-
-    return id;
   });
 
   return {
-    postId,
+    postId: postIds[0] ?? 0,
+    postIds,
     classSessionId: sessionId,
-    present,
-    absent,
-    od,
-    leave,
-    total: marks.length,
+    sessionIds: siblingRows.map((s) => Number(s.id)),
+    present: totalPresent,
+    absent: totalAbsent,
+    od: totalOd,
+    leave: totalLeave,
+    total: totalSubmittedMarks,
   };
 }
 

@@ -25,6 +25,8 @@ type StudentMark = {
   branch?: string | null;
   year?: number | null;
   semester?: number | null;
+  section?: string | null;
+  sessionId?: number;
   hasPhoto?: boolean;
   status: AttendanceMark;
   remarks: string | null;
@@ -33,9 +35,11 @@ type StudentMark = {
 type Payload = {
   session: {
     id: number;
+    sessionIds?: number[];
     subjectName: string | null;
     subjectCode: string | null;
     section: string | null;
+    sections?: string[];
     slotLabel: string | null;
     time: string;
     date: string;
@@ -59,6 +63,28 @@ function normalizeStatus(status: string | null | undefined): AttendanceMark {
   return status === "absent" ? "absent" : "present";
 }
 
+function formatSectionDisplay(section: string | null | undefined, sections?: string[] | null) {
+  if (sections && sections.length > 1) {
+    const cleaned = sections.map((s) => s.replace(/^section\s+/i, "").trim());
+    return `Sections ${cleaned.join(", ")}`;
+  }
+  if (!section) return "";
+  const trimmed = section.trim();
+  if (/^sections?\s+/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.includes(",")) {
+    const parts = trimmed.split(",").map((s) => s.replace(/^section\s+/i, "").trim());
+    return `Sections ${parts.join(", ")}`;
+  }
+  return `Section ${trimmed}`;
+}
+
+function normalizeSectionKey(sec: string | null | undefined) {
+  if (!sec) return "";
+  return sec.replace(/^section\s+/i, "").trim().toLowerCase();
+}
+
 export function AttendancePostSessionView() {
   const params = useParams<{ sessionId: string }>();
   const sessionId = params.sessionId;
@@ -66,6 +92,7 @@ export function AttendancePostSessionView() {
   const [students, setStudents] = useState<StudentMark[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FilterMark>("all");
+  const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>("all");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [modalFilter, setModalFilter] = useState<FilterMark>("all");
   const [loading, setLoading] = useState(true);
@@ -122,6 +149,10 @@ export function AttendancePostSessionView() {
 
   const filtered = useMemo(() => {
     let list = students;
+    if (selectedSectionFilter !== "all") {
+      const targetSec = normalizeSectionKey(selectedSectionFilter);
+      list = list.filter((s) => normalizeSectionKey(s.section) === targetSec);
+    }
     if (statusFilter === "present") {
       list = list.filter((s) => s.status === "present");
     } else if (statusFilter === "absent") {
@@ -135,17 +166,22 @@ export function AttendancePostSessionView() {
         s.admissionNo.toLowerCase().includes(q) ||
         (s.pinNo && s.pinNo.toLowerCase().includes(q)),
     );
-  }, [students, query, statusFilter]);
+  }, [students, query, statusFilter, selectedSectionFilter]);
 
   const modalFilteredStudents = useMemo(() => {
+    let list = students;
+    if (selectedSectionFilter !== "all") {
+      const targetSec = normalizeSectionKey(selectedSectionFilter);
+      list = list.filter((s) => normalizeSectionKey(s.section) === targetSec);
+    }
     if (modalFilter === "present") {
-      return students.filter((s) => s.status === "present");
+      return list.filter((s) => s.status === "present");
     }
     if (modalFilter === "absent") {
-      return students.filter((s) => s.status === "absent");
+      return list.filter((s) => s.status === "absent");
     }
-    return students;
-  }, [students, modalFilter]);
+    return list;
+  }, [students, modalFilter, selectedSectionFilter]);
 
   const counts = useMemo(() => {
     return {
@@ -154,6 +190,29 @@ export function AttendancePostSessionView() {
       absent: students.filter((s) => s.status === "absent").length,
     };
   }, [students]);
+
+  const sectionCounts = useMemo(() => {
+    const map = new Map<string, { total: number; present: number; absent: number }>();
+    if (!payload?.session.sections || payload.session.sections.length <= 1) return map;
+    for (const sec of payload.session.sections) {
+      const key = normalizeSectionKey(sec);
+      const matching = students.filter((s) => normalizeSectionKey(s.section) === key);
+      map.set(key, {
+        total: matching.length,
+        present: matching.filter((s) => s.status === "present").length,
+        absent: matching.filter((s) => s.status === "absent").length,
+      });
+    }
+    return map;
+  }, [students, payload?.session.sections]);
+
+  function handleMarkAllVisible(status: AttendanceMark) {
+    const visibleIds = new Set(filtered.map((s) => s.id));
+    setStudents((prev) =>
+      prev.map((s) => (visibleIds.has(s.id) ? { ...s, status } : s)),
+    );
+    setSaved(null);
+  }
 
   function setStatus(id: string, status: AttendanceMark) {
     setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
@@ -240,7 +299,7 @@ export function AttendancePostSessionView() {
               <span className="whitespace-nowrap">{payload.session.time}</span>
             </div>
           }
-          description={`Section ${payload.session.section ?? "—"} • ${payload.session.date}${payload.session.slotLabel ? ` • ${payload.session.slotLabel}` : ""}`}
+          description={`${formatSectionDisplay(payload.session.section, payload.session.sections)} • ${payload.session.date}${payload.session.slotLabel ? ` • ${payload.session.slotLabel}` : ""}${payload.session.sections && payload.session.sections.length > 1 ? ` • Combined (${payload.session.sections.length} Sections)` : ""}`}
           actions={
             <>
               <Link href="/attendance-posting">
@@ -256,6 +315,11 @@ export function AttendancePostSessionView() {
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <StatusBadge status={payload.posted ? "Posted" : "Pending"} />
+            {payload.session.sections && payload.session.sections.length > 1 ? (
+              <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Combined ({payload.session.sections.length} Sections)
+              </span>
+            ) : null}
             <span className="text-xs text-slate-500 truncate max-w-[140px] sm:max-w-none">
               {payload.session.facultyName ?? "Faculty unassigned"}
               {payload.session.roomLabel ? ` • ${payload.session.roomLabel}` : ""}
@@ -296,6 +360,80 @@ export function AttendancePostSessionView() {
           </div>
         </div>
 
+        {/* Section Filter Tabs & Quick Marking for Combined Sessions */}
+        {payload.session.sections && payload.session.sections.length > 1 && (
+          <div className="mb-2 bg-slate-50 border border-border/80 p-2 rounded-lg space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between sm:gap-2">
+            {/* Inline Section Filter Segmented Grid (Fits to screen on mobile) */}
+            <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-0">
+              <span className="text-xs font-semibold text-slate-500 hidden sm:inline shrink-0 mr-0.5">Section:</span>
+              <div className="grid grid-flow-col auto-cols-fr gap-1 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSectionFilter("all")}
+                  className={cn(
+                    "px-2 py-1 rounded-md text-xs font-semibold transition-all text-center truncate",
+                    selectedSectionFilter === "all"
+                      ? "bg-navy-900 text-white shadow-xs"
+                      : "bg-white text-slate-700 hover:text-navy-900 border border-border"
+                  )}
+                >
+                  <span className="sm:hidden">All</span>
+                  <span className="hidden sm:inline">All Sections</span>
+                  <span className="ml-1 opacity-80">({students.length})</span>
+                </button>
+                {payload.session.sections.map((sec) => {
+                  const key = normalizeSectionKey(sec);
+                  const stat = sectionCounts.get(key);
+                  const isSelected = selectedSectionFilter !== "all" && normalizeSectionKey(selectedSectionFilter) === key;
+                  const cleanLabel = sec.replace(/^section\s+/i, "");
+                  return (
+                    <button
+                      key={sec}
+                      type="button"
+                      onClick={() => setSelectedSectionFilter(sec)}
+                      className={cn(
+                        "px-2 py-1 rounded-md text-xs font-semibold transition-all text-center truncate",
+                        isSelected
+                          ? "bg-navy-900 text-white shadow-xs"
+                          : "bg-white text-slate-700 hover:text-navy-900 border border-border"
+                      )}
+                    >
+                      <span className="sm:hidden">Sec {cleanLabel}</span>
+                      <span className="hidden sm:inline">Section {cleanLabel}</span>
+                      <span className={cn(
+                        "ml-1 text-[10px] px-1.5 py-0.2 rounded-full inline-block",
+                        isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700 font-bold"
+                      )}>
+                        {stat?.total ?? 0}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Quick Marking Buttons */}
+            <div className="grid grid-cols-2 gap-1.5 w-full sm:w-auto sm:flex sm:items-center sm:gap-1.5 shrink-0 justify-end pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
+              <button
+                type="button"
+                onClick={() => handleMarkAllVisible("present")}
+                className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded transition-colors text-center truncate"
+                title="Mark all currently visible students as Present"
+              >
+                Mark All Present
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMarkAllVisible("absent")}
+                className="px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded transition-colors text-center truncate"
+                title="Mark all currently visible students as Absent"
+              >
+                Mark All Absent
+              </button>
+            </div>
+          </div>
+        )}
+
         {error ? <p className="mb-2 text-xs text-critical">{error}</p> : null}
         {saved ? <p className="mb-2 text-xs text-success">{saved}</p> : null}
 
@@ -325,6 +463,8 @@ export function AttendancePostSessionView() {
           <p className="px-4 py-6 text-sm text-slate-500 text-center">
             {statusFilter !== "all"
               ? `No ${statusFilter} students found.`
+              : selectedSectionFilter !== "all"
+              ? `No students found in Section ${selectedSectionFilter.replace(/^section\s+/i, "")}.`
               : "No students on this roster."}
           </p>
         ) : (
@@ -347,9 +487,16 @@ export function AttendancePostSessionView() {
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-navy-900 tracking-wide">
-                          {displayPin}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="truncate text-sm font-bold text-navy-900 tracking-wide">
+                            {displayPin}
+                          </p>
+                          {payload.session.sections && payload.session.sections.length > 1 && student.section ? (
+                            <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              Sec {student.section.replace(/^section\s+/i, "")}
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="truncate text-xs font-medium text-slate-600 mt-0.5" title={student.name}>
                           {student.name}
                         </p>
@@ -385,6 +532,9 @@ export function AttendancePostSessionView() {
                   <th className="px-3 py-2.5 text-center w-12 flex-none">#</th>
                   <th className="px-3 py-2.5 w-44 lg:w-48">PIN Number</th>
                   <th className="px-3 py-2.5 w-1/3">Student Name</th>
+                  {payload.session.sections && payload.session.sections.length > 1 ? (
+                    <th className="px-3 py-2.5 w-24">Section</th>
+                  ) : null}
                   <th className="px-3 py-2.5 w-1/5">Course & Branch</th>
                   <th className="px-3 py-2.5 hidden md:table-cell w-1/6">Year & Sem</th>
                   <th className="px-3 py-2.5 text-right w-28">Attendance</th>
@@ -423,6 +573,15 @@ export function AttendancePostSessionView() {
                       <td className="px-3 py-2.5 font-medium text-slate-800 truncate" title={student.name}>
                         {student.name}
                       </td>
+
+                      {/* Section (for merged combined classes) */}
+                      {payload.session.sections && payload.session.sections.length > 1 ? (
+                        <td className="px-3 py-2.5 truncate">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            Sec {student.section?.replace(/^section\s+/i, "") || "—"}
+                          </span>
+                        </td>
+                      ) : null}
 
                       {/* 4. Course & Branch */}
                       <td className="px-3 py-2.5 text-slate-600 truncate">
@@ -518,14 +677,39 @@ export function AttendancePostSessionView() {
               </div>
             </div>
 
+            {/* Section Breakdown in Modal for Combined Class */}
+            {payload.session.sections && payload.session.sections.length > 1 && (
+              <div className="rounded-lg bg-indigo-50/70 p-2.5 border border-indigo-100 text-xs">
+                <p className="font-bold text-navy-900 mb-1.5 flex items-center justify-between">
+                  <span>Merged Section Breakdown:</span>
+                  <span className="text-[11px] font-normal text-indigo-800">{payload.session.sections.length} Sections Combined</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-slate-700">
+                  {payload.session.sections.map((sec) => {
+                    const key = normalizeSectionKey(sec);
+                    const stat = sectionCounts.get(key);
+                    const cleanLabel = sec.replace(/^section\s+/i, "");
+                    return (
+                      <div key={sec} className="bg-white rounded-md p-2 border border-indigo-100 shadow-2xs">
+                        <p className="font-bold text-navy-900 text-xs">Section {cleanLabel}</p>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          Total: <strong>{stat?.total ?? 0}</strong> • P: <strong className="text-success">{stat?.present ?? 0}</strong> • A: <strong className="text-critical">{stat?.absent ?? 0}</strong>
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-semibold uppercase text-slate-500">
                   {modalFilter === "all"
-                    ? `All Students (${counts.total})`
+                    ? `All Students (${modalFilteredStudents.length})`
                     : modalFilter === "present"
-                    ? `Present Students (${counts.present})`
-                    : `Absent Students (${counts.absent})`}
+                    ? `Present Students (${modalFilteredStudents.length})`
+                    : `Absent Students (${modalFilteredStudents.length})`}
                 </h4>
               </div>
 
@@ -541,6 +725,9 @@ export function AttendancePostSessionView() {
                         <th className="px-2.5 py-1.5 w-8 text-center">#</th>
                         <th className="px-2.5 py-1.5 w-32">PIN Number</th>
                         <th className="px-2.5 py-1.5">Student Name</th>
+                        {payload.session.sections && payload.session.sections.length > 1 ? (
+                          <th className="px-2.5 py-1.5 w-16">Section</th>
+                        ) : null}
                         <th className="px-2.5 py-1.5 text-right w-20">Status</th>
                       </tr>
                     </thead>
@@ -558,6 +745,11 @@ export function AttendancePostSessionView() {
                             <td className="px-2.5 py-2 font-medium text-slate-700 truncate max-w-[180px]">
                               {s.name}
                             </td>
+                            {payload.session.sections && payload.session.sections.length > 1 ? (
+                              <td className="px-2.5 py-2 text-slate-600 font-semibold whitespace-nowrap">
+                                Sec {s.section?.replace(/^section\s+/i, "") || "—"}
+                              </td>
+                            ) : null}
                             <td className="px-2.5 py-2 text-right">
                               <span
                                 className={cn(

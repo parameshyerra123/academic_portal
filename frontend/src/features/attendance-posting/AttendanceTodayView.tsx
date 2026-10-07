@@ -36,6 +36,8 @@ export type AttendanceSessionCard = {
   subjectName: string | null;
   subjectTypeSnapshot?: string | null;
   section: string | null;
+  sections?: string[];
+  sessionIds?: number[];
   collegeId?: number;
   collegeName?: string;
   courseId?: number;
@@ -51,6 +53,23 @@ export type AttendanceSessionCard = {
   presentCount: number;
   absentCount: number;
 };
+
+export function formatSectionDisplay(section: string | null | undefined, sections?: string[] | null) {
+  if (sections && sections.length > 1) {
+    const cleaned = sections.map((s) => s.replace(/^section\s+/i, "").trim());
+    return `Sections ${cleaned.join(", ")}`;
+  }
+  if (!section) return "";
+  const trimmed = section.trim();
+  if (/^sections?\s+/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.includes(",")) {
+    const parts = trimmed.split(",").map((s) => s.replace(/^section\s+/i, "").trim());
+    return `Sections ${parts.join(", ")}`;
+  }
+  return `Section ${trimmed}`;
+}
 
 export type AbstractBranch = {
   branchId: number;
@@ -827,6 +846,11 @@ export function AttendanceTodayView() {
                           ★ My Slot
                         </span>
                       ) : null}
+                      {item.sections && item.sections.length > 1 ? (
+                        <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          Combined ({item.sections.length} Sec)
+                        </span>
+                      ) : null}
                       {item.subjectTypeSnapshot ? (
                         <span
                           className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
@@ -847,7 +871,7 @@ export function AttendanceTodayView() {
                   </h3>
                   <p className="text-[10px] sm:text-xs font-medium text-slate-600 mt-0.5">
                     {item.subjectCode ?? "—"}
-                    {item.section ? ` • Section ${item.section}` : ""}
+                    {item.section ? ` • ${formatSectionDisplay(item.section, item.sections)}` : ""}
                     {item.branchName ? ` • ${item.branchName}` : ""}
                   </p>
                   <p className="mt-1 text-[10px] sm:text-xs text-slate-500">
@@ -883,7 +907,9 @@ export function AttendanceTodayView() {
                       {item.posted
                         ? "Review / Edit Attendance"
                         : item.isMySession
-                          ? "Post Attendance"
+                          ? item.sections && item.sections.length > 1
+                            ? "Post Attendance (Combined)"
+                            : "Post Attendance"
                           : "Post Attendance (Dept / Substitute)"}
                     </Button>
                   </Link>
