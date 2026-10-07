@@ -887,7 +887,7 @@ function PeriodEditModal({
               <div>
                 <p className="font-bold">Period Matches Master Timetable</p>
                 <p className="text-[11px] text-emerald-700 mt-0.5">
-                  Today's schedule matches the baseline master timetable for this period.
+                  Today&apos;s schedule matches the baseline master timetable for this period.
                 </p>
               </div>
             </div>
@@ -2247,7 +2247,7 @@ export function TodayTimetableView() {
         courseId:
           filters.courseId !== "all"
             ? filters.courseId
-            : (cohort?.planner.context as any)?.courseId || (selectedBranch?.courseId || 1),
+            : (cohort?.planner.context as { courseId?: number } | undefined)?.courseId || (selectedBranch?.courseId || 1),
         branchId: filters.branchId,
         batch: targetBatch,
         semester: targetSemester,
@@ -2337,7 +2337,7 @@ export function TodayTimetableView() {
           ) : (
             <span className="inline-flex items-center gap-1 font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
               <Lock className="h-3.5 w-3.5" />
-              <span>View Only: Editing requires 'Edit Today Timetable' permission</span>
+              <span>View Only: Editing requires &apos;Edit Today Timetable&apos; permission</span>
             </span>
           )}
         </div>
@@ -2572,7 +2572,7 @@ export function TodayTimetableView() {
                   {/* Day Off message if no slots on this weekday */}
                   {isCohortDayOff && (
                     <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">
-                      No classes scheduled for {selectedDayName} in this cohort's timetable.
+                      No classes scheduled for {selectedDayName} in this cohort&apos;s timetable.
                     </div>
                   )}
 

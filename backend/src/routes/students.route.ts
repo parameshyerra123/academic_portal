@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { AuthedRequest } from "../middleware/auth.middleware.js";
 import {
   ensureEntityScope,
+  getAuthz,
   requirePermission,
   scopedFilters,
   statusFromAuthzError,
@@ -35,6 +36,25 @@ async function assertStudentInScope(req: AuthedRequest, studentId: string) {
   const scope = await getStudentScope(studentId);
   if (!scope) {
     throw Object.assign(new Error("Student not found"), { status: 404 });
+  }
+  ensureEntityScope(req, scope);
+}
+
+async function assertStudentPhotoInScope(req: AuthedRequest, studentId: string) {
+  const scope = await getStudentScope(studentId);
+  if (!scope) {
+    throw Object.assign(new Error("Student not found"), { status: 404 });
+  }
+  const authz = getAuthz(req);
+  if (authz.scope.isGlobal) return;
+
+  const allowedColleges = authz.scope.collegeIds ?? [];
+  if (
+    allowedColleges.length > 0 &&
+    scope.collegeId != null &&
+    allowedColleges.includes(Number(scope.collegeId))
+  ) {
+    return;
   }
   ensureEntityScope(req, scope);
 }
@@ -120,25 +140,37 @@ function paramId(value: string | string[]): string {
   return Array.isArray(value) ? String(value[0] ?? "") : String(value);
 }
 
-studentsRouter.get("/:id/photo", requirePermission("students.view"), async (req: AuthedRequest, res, next) => {
-  try {
-    const id = paramId(req.params.id);
-    await assertStudentInScope(req, id);
-    const photo = await getStudentPhoto(id);
-    if (!photo) {
-      res.status(404).json({ message: "Student not found" });
-      return;
+studentsRouter.get(
+  "/:id/photo",
+  requirePermission(
+    "students.view",
+    "attendance.view",
+    "attendance.post",
+    "today_timetable.view",
+    "my_timetable.view",
+    "mentoring.view",
+    "examinations.view",
+  ),
+  async (req: AuthedRequest, res, next) => {
+    try {
+      const id = paramId(req.params.id);
+      await assertStudentPhotoInScope(req, id);
+      const photo = await getStudentPhoto(id);
+      if (!photo) {
+        res.status(404).json({ message: "Student not found" });
+        return;
+      }
+      res.json(photo);
+    } catch (error) {
+      const status = statusFromAuthzError(error);
+      if (status === 401 || status === 403 || status === 404) {
+        res.status(status).json({ message: (error as Error).message || "Forbidden" });
+        return;
+      }
+      next(error);
     }
-    res.json(photo);
-  } catch (error) {
-    const status = statusFromAuthzError(error);
-    if (status === 401 || status === 403 || status === 404) {
-      res.status(status).json({ message: (error as Error).message || "Forbidden" });
-      return;
-    }
-    next(error);
-  }
-});
+  },
+);
 
 studentsRouter.get(
   "/:id/attendance",
