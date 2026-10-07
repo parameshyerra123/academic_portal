@@ -7,11 +7,13 @@ import {
   statusFromAuthzError,
 } from "../authz/require-permission.js";
 import {
+  combineTimetableSections,
   copyTimetablePlan,
   getTimetablePlanScope,
   getTimetablePlanner,
   getTimetableVersions,
   getTimingTemplateForFilters,
+  getTimetableRoster,
   listFacultyOptions,
   listSubjectsForPlanner,
   listTimetableReportRows,
@@ -79,6 +81,14 @@ async function assertPlanInScope(req: AuthedRequest, planId: number) {
 timetablesRouter.get("/sections", requirePermission("timetable.view"), async (req: AuthedRequest, res, next) => {
   try {
     res.json({ data: await listTimetableSections(filtersFromQuery(req)) });
+  } catch (error) {
+    sendAuthzError(res, error, next);
+  }
+});
+
+timetablesRouter.get("/roster", requirePermission("timetable.view"), async (req: AuthedRequest, res, next) => {
+  try {
+    res.json({ data: await getTimetableRoster(filtersFromQuery(req)) });
   } catch (error) {
     sendAuthzError(res, error, next);
   }
@@ -295,6 +305,47 @@ timetablesRouter.post("/copy", requirePermission("timetable.edit"), async (req: 
       actorUserId: req.authUser?.id,
       ipAddress: req.ip,
     }));
+  } catch (error) {
+    sendAuthzError(res, error, next);
+  }
+});
+
+timetablesRouter.post("/combine-sections", requirePermission("timetable.edit"), async (req: AuthedRequest, res, next) => {
+  try {
+    const body = req.body as {
+      collegeId: number;
+      courseId: number;
+      branchId: number;
+      academicYear: string;
+      batch: string;
+      year?: number | null;
+      semester: number;
+      mainSection: string;
+      targetSections: string[];
+      publish?: boolean;
+    };
+    scopedFilters(req, {
+      collegeId: Number(body.collegeId),
+      branchId: Number(body.branchId),
+    });
+    const result = await combineTimetableSections({
+      ...body,
+      actorUserId: req.authUser?.id,
+      ipAddress: req.ip,
+    });
+    await writeAuditLog({
+      actorUserId: req.authUser!.id,
+      action: "timetable.combined_sections",
+      entityType: "ap_timetable_plans",
+      entityId: result.sourcePlanId,
+      newValue: {
+        mainSection: body.mainSection,
+        targetSections: body.targetSections,
+        results: result.results,
+      },
+      ipAddress: req.ip,
+    });
+    res.json(result);
   } catch (error) {
     sendAuthzError(res, error, next);
   }

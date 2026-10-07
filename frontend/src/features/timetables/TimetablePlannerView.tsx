@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
-import { ArrowUpDown, Check, Plus, Printer, Search, Users } from "lucide-react";
+import { ArrowUpDown, Check, Layers, Plus, Printer, Search, Users } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
@@ -13,6 +13,7 @@ import { AcademicFilterBar } from "@/components/layout/AcademicFilterBar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { TimingEditorDrawer } from "@/features/timetables/TimingEditorDrawer";
+import { CombineSectionsModal } from "@/features/timetables/CombineSectionsModal";
 import {
   classPeriodCellClass,
   emptyPeriodCellClass,
@@ -975,7 +976,7 @@ function StudentBatchClassifier({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-bold text-navy-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                          {student.pin_no || student.admission_number}
+                          {student.pin_no || student.admission_number || `STU-${student.id}`}
                         </span>
                         <span className="text-xs font-medium text-slate-800 truncate">
                           {student.student_name || "Unnamed Student"}
@@ -1015,9 +1016,8 @@ function StudentBatchClassifier({
     </div>
   );
 }
-
 export function TimetablePlannerView({ embedded = false }: { embedded?: boolean }) {
-  const { filters, masters } = useAcademicContext();
+  const { filters, masters, setFilters } = useAcademicContext();
   const { hasPermission, hasAnyPermission } = useAuth();
   const canEdit = hasPermission("timetable.edit");
   const canPublish = hasPermission("timetable.publish");
@@ -1042,6 +1042,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const [studentBatchMap, setStudentBatchMap] = useState<Record<number, string>>({});
   const [weeklyRotation, setWeeklyRotation] = useState(false);
   const [rotationPattern, setRotationPattern] = useState<number[]>([1, 2, 1, 2]);
+  const [combineOpen, setCombineOpen] = useState(false);
 
   const selectedBranch =
     filters.branchId === "all" || !masters
@@ -1083,44 +1084,110 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   }, [filters, filtersComplete]);
 
   const fetchSectionStudents = useCallback(async () => {
-    if (!filtersComplete || !filters.collegeId || filters.collegeId === "all") {
+    const collegeId = filters.collegeId !== "all" && filters.collegeId ? filters.collegeId : planner?.context?.collegeId;
+    if (!collegeId) {
       setSectionStudents([]);
       return;
     }
     setLoadingStudents(true);
     try {
       const params = new URLSearchParams();
-      params.set("collegeId", String(filters.collegeId));
-      if (filters.courseId !== "all") params.set("courseId", String(filters.courseId));
-      if (filters.branchId !== "all") params.set("branchId", String(filters.branchId));
-      if (filters.batch !== "all") params.set("batch", String(filters.batch));
-      if (filters.year !== "all") params.set("year", String(filters.year));
-      if (filters.semester !== "all") params.set("semester", String(filters.semester));
-      if (filters.section !== "all") params.set("section", String(filters.section));
-      params.set("limit", "500");
+      params.set("collegeId", String(collegeId));
 
-      const res = await apiFetch(`/students?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        const list: SectionStudent[] = (json.data ?? []).map((s: {
-          id: number;
-          pin_no?: string | null;
-          student_name?: string | null;
-          admission_number: string;
-        }) => ({
-          id: s.id,
-          pin_no: s.pin_no ?? null,
-          student_name: s.student_name ?? null,
-          admission_number: s.admission_number,
-        }));
-        setSectionStudents(list);
+      const targetCourseId = filters.courseId !== "all" && filters.courseId ? filters.courseId : planner?.context?.courseId;
+      if (targetCourseId && String(targetCourseId) !== "all") params.set("courseId", String(targetCourseId));
+
+      const targetBranchId = filters.branchId !== "all" && filters.branchId ? filters.branchId : planner?.context?.branchId;
+      if (targetBranchId && String(targetBranchId) !== "all") params.set("branchId", String(targetBranchId));
+
+      const targetBatch = filters.batch !== "all" && filters.batch ? filters.batch : planner?.context?.batch;
+      if (targetBatch && targetBatch !== "all") params.set("batch", String(targetBatch));
+
+      const targetYear = filters.year !== "all" && filters.year != null ? filters.year : planner?.context?.year;
+      if (targetYear != null && String(targetYear) !== "all") params.set("year", String(targetYear));
+
+      const targetSemester = filters.semester !== "all" && filters.semester != null ? filters.semester : planner?.context?.semester;
+      if (targetSemester != null && String(targetSemester) !== "all") params.set("semester", String(targetSemester));
+
+      const targetSection = filters.section !== "all" && filters.section ? filters.section : planner?.context?.section;
+      if (targetSection && targetSection !== "all") params.set("section", String(targetSection));
+
+      const mapStudent = (s: {
+        id: number | string;
+        rollNo?: string | null;
+        pin_no?: string | null;
+        name?: string | null;
+        student_name?: string | null;
+        admissionNo?: string;
+        admission_number?: string;
+      }): SectionStudent => ({
+        id: Number(s.id),
+        pin_no: s.rollNo ?? s.pin_no ?? null,
+        student_name: s.name ?? s.student_name ?? null,
+        admission_number: s.admissionNo ?? s.admission_number ?? "",
+      });
+
+      let list: SectionStudent[] = [];
+
+      // 1. Fast dedicated timetable roster endpoint
+      try {
+        const res = await apiFetch(`/timetables/roster?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          list = (json.data ?? []).map(mapStudent);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch from /timetables/roster", err);
       }
+
+      // 2. Fallback to /students if empty
+      if (list.length === 0) {
+        params.set("limit", "500");
+        try {
+          const resFallback = await apiFetch(`/students?${params.toString()}`);
+          if (resFallback.ok) {
+            const json = await resFallback.json();
+            list = (json.data ?? []).map(mapStudent);
+          }
+        } catch (err) {
+          console.warn("Failed to fetch fallback from /students", err);
+        }
+      }
+
+      // 3. Fallback: if still 0 students and section was specified, try without section
+      if (list.length === 0 && targetSection && targetSection !== "all") {
+        params.delete("section");
+        try {
+          const resNoSec = await apiFetch(`/timetables/roster?${params.toString()}`);
+          if (resNoSec.ok) {
+            const json = await resNoSec.json();
+            list = (json.data ?? []).map(mapStudent);
+          }
+        } catch (err) {
+          console.warn("Failed to fetch fallback without section", err);
+        }
+      }
+
+      setSectionStudents(list);
+
+      // Auto-assign 50/50 split if in split mode and no batch assignments exist yet
+      setStudentBatchMap((currentMap) => {
+        if (Object.keys(currentMap).length === 0 && list.length > 0) {
+          const half = Math.ceil(list.length / 2);
+          const autoMap: Record<number, string> = {};
+          list.forEach((s, idx) => {
+            autoMap[s.id] = idx < half ? "Batch 1" : "Batch 2";
+          });
+          return autoMap;
+        }
+        return currentMap;
+      });
     } catch (err) {
       console.warn("Failed to fetch students for section", err);
     } finally {
       setLoadingStudents(false);
     }
-  }, [filters, filtersComplete]);
+  }, [filters, planner?.context]);
 
   useEffect(() => {
     void fetchSectionStudents();
@@ -1262,7 +1329,15 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
         }
       });
     }
+    // If hasSplit but no student IDs were saved previously and sectionStudents is already loaded, auto-split 50/50
+    if (hasSplit && Object.keys(initialBatchMap).length === 0 && sectionStudents.length > 0) {
+      const half = Math.ceil(sectionStudents.length / 2);
+      sectionStudents.forEach((s, idx) => {
+        initialBatchMap[s.id] = idx < half ? "Batch 1" : "Batch 2";
+      });
+    }
     setStudentBatchMap(initialBatchMap);
+    void fetchSectionStudents();
 
     if (existingList.length === 0) {
       setSlotAllocations([
@@ -1353,6 +1428,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const handleToggleSplit = (checked: boolean) => {
     setIsSplit(checked);
     if (checked) {
+      void fetchSectionStudents();
       setSlotAllocations((prev) => {
         const b1: DraftAllocation = prev[0]
           ? { ...prev[0], batchLabel: "Batch 1" }
@@ -1884,6 +1960,17 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
             {canEdit ? (
               <Button variant="secondary" disabled={!planner?.ready || busy} onClick={() => void runReview()} className="print:hidden">
                 Review
+              </Button>
+            ) : null}
+            {canEdit ? (
+              <Button
+                variant="secondary"
+                disabled={!planner?.ready || busy}
+                onClick={() => setCombineOpen(true)}
+                className="print:hidden border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-900"
+                title="Combine and duplicate timetable across sections"
+              >
+                <Layers className="mr-1.5 h-4 w-4 text-indigo-600" /> Combine Sections
               </Button>
             ) : null}
             {canPublish ? (
@@ -2672,6 +2759,42 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
           }}
         />
       ) : null}
+
+      <CombineSectionsModal
+        isOpen={combineOpen}
+        onClose={() => setCombineOpen(false)}
+        availableSections={(() => {
+          const bId = filters.branchId !== "all" && filters.branchId ? Number(filters.branchId) : planner?.context?.branchId;
+          const list = masters?.sections
+            ?.filter((s) => Number(s.branchId) === Number(bId))
+            ?.map((s) => s.name) ?? [];
+          return list;
+        })()}
+        initialTickedSections={
+          filters.section && filters.section !== "all" ? [filters.section] : []
+        }
+        currentSection={filters.section}
+        context={{
+          collegeId: filters.collegeId !== "all" ? filters.collegeId : planner?.context?.collegeId ?? undefined,
+          courseId: filters.courseId !== "all" ? filters.courseId : planner?.context?.courseId ?? undefined,
+          branchId: (filters.branchId !== "all" ? filters.branchId : planner?.context?.branchId) ?? undefined,
+          academicYear: filters.academicYear || planner?.context?.academicYear,
+          batch: filters.batch !== "all" ? filters.batch : planner?.context?.batch,
+          year: (filters.year !== "all" ? filters.year : planner?.context?.year) ?? undefined,
+          semester: (filters.semester !== "all" ? filters.semester : planner?.context?.semester) ?? undefined,
+          collegeName: selectedCollege?.name || planner?.context?.college,
+          branchName: selectedBranch?.name || planner?.context?.branch,
+        }}
+        onSuccess={async (mainSec, targetSecs) => {
+          setInfo(
+            `Timetable combined! Section ${targetSecs.join(", ")} now has the identical schedule as Section ${mainSec}.`,
+          );
+          if (targetSecs[0]) {
+            setFilters({ section: targetSecs[0] });
+          }
+          await loadPlanner();
+        }}
+      />
     </div>
   );
 }

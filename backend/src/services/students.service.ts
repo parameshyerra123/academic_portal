@@ -498,8 +498,10 @@ function buildStudentListWhere(input: StudentListFilters) {
     params.push(...input.branchIds);
   }
   if (input.batch) {
-    where.push("TRIM(s.batch) = ?");
-    params.push(input.batch);
+    const rawBatch = input.batch.trim();
+    const fourDigit = rawBatch.slice(0, 4);
+    where.push("(TRIM(s.batch) = ? OR TRIM(s.batch) = ? OR s.batch LIKE ?)");
+    params.push(rawBatch, fourDigit, `${fourDigit}%`);
   }
   if (input.year != null) {
     where.push("s.current_year = ?");

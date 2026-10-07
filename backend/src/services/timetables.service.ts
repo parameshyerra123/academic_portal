@@ -2094,6 +2094,9 @@ export async function copyTimetablePlan(input: {
       facultyStaffLinkId: entry.faculty_staff_link_id,
       roomLabel: entry.room_label,
       customLabel: entry.custom_label,
+      batchLabel: entry.batch_label ?? "",
+      weeklyRotation: Boolean(entry.weekly_rotation),
+      rotationPattern: entry.rotation_pattern ?? null,
     });
   }
 
@@ -2104,6 +2107,182 @@ export async function copyTimetablePlan(input: {
     actorUserId: input.actorUserId,
     ipAddress: input.ipAddress,
   });
+}
+
+export type CombineSectionsInput = {
+  collegeId: number;
+  courseId: number;
+  branchId: number;
+  academicYear: string;
+  batch: string;
+  year?: number | null;
+  semester: number;
+  mainSection: string;
+  targetSections: string[];
+  publish?: boolean;
+  actorUserId?: number | null;
+  ipAddress?: string | null;
+};
+
+export async function combineTimetableSections(input: CombineSectionsInput) {
+  const mainSection = input.mainSection?.trim();
+  if (!mainSection) {
+    throw new Error("Main (source) section is required.");
+  }
+
+  const targetSections = (input.targetSections ?? [])
+    .map((s) => s.trim())
+    .filter((s) => s && s.toLowerCase() !== mainSection.toLowerCase());
+
+  if (targetSections.length === 0) {
+    throw new Error(`Please select at least one target section to combine with Section ${mainSection}.`);
+  }
+
+  // 1. Find the current active plan for mainSection
+  const sourcePlans = await queryAcademic<PlanRow[]>(
+    `
+    SELECT * FROM ap_timetable_plans
+    WHERE academic_year_label = ?
+      AND college_id = ?
+      AND course_id = ?
+      AND branch_id = ?
+      AND batch = ?
+      AND semester_number = ?
+      AND section_name = ?
+      AND status IN ('published', 'in_review', 'draft')
+    ORDER BY CASE status WHEN 'published' THEN 1 WHEN 'in_review' THEN 2 ELSE 3 END, id DESC
+    LIMIT 1
+    `,
+    [
+      input.academicYear,
+      input.collegeId,
+      input.courseId,
+      input.branchId,
+      input.batch,
+      input.semester,
+      mainSection,
+    ],
+  );
+
+  const sourcePlan = sourcePlans[0];
+  if (!sourcePlan) {
+    throw new Error(`No timetable plan found for main Section ${mainSection}. Please create and save periods for Section ${mainSection} first.`);
+  }
+
+  // 2. Load entries from sourcePlan
+  const sourceEntries = await loadEntries(sourcePlan.id);
+  if (sourceEntries.length === 0) {
+    throw new Error(`Main Section ${mainSection} timetable has no periods assigned yet.`);
+  }
+
+  const sourceSlots = sourcePlan.timing_template_id
+    ? await listTimingSlots(sourcePlan.timing_template_id)
+    : [];
+
+  const targetTiming = await getActiveTimingForContext({
+    collegeId: input.collegeId,
+    academicYear: input.academicYear,
+    semester: input.semester,
+  });
+  if (!targetTiming) {
+    throw new Error("Active timing template not found for year/semester.");
+  }
+
+  // Map entries into assignments
+  const assignments: AssignmentInput[] = [];
+  for (const entry of sourceEntries) {
+    const srcSlotId = entry.timing_slot_id ?? entry.period_slot_id;
+    const srcSlot = sourceSlots.find((s) => s.id === srcSlotId);
+    if (!srcSlot || !srcSlot.isAssignable) continue;
+    const targetSlot = targetTiming.slots.find(
+      (s) =>
+        s.dayOfWeek === srcSlot.dayOfWeek &&
+        s.label === srcSlot.label &&
+        s.startTime === srcSlot.startTime &&
+        s.endTime === srcSlot.endTime &&
+        s.isAssignable,
+    );
+    if (!targetSlot) continue;
+    assignments.push({
+      dayOfWeek: entry.day_of_week,
+      timingSlotId: targetSlot.id,
+      subjectId: entry.subject_id,
+      subjectCode: entry.subject_code,
+      subjectName: entry.subject_name,
+      entryType: (entry.entry_type as "theory" | "lab" | "other") || "theory",
+      facultyStaffLinkId: entry.faculty_staff_link_id,
+      roomLabel: entry.room_label,
+      customLabel: entry.custom_label,
+      batchLabel: entry.batch_label ?? "",
+      weeklyRotation: Boolean(entry.weekly_rotation),
+      rotationPattern: entry.rotation_pattern ?? null,
+    });
+  }
+
+  if (assignments.length === 0) {
+    throw new Error("Could not map any period slots from the main section to the target timing template.");
+  }
+
+  const results: Array<{
+    section: string;
+    planId: number;
+    status: string;
+    versionNo: number;
+    copiedAssignmentsCount: number;
+  }> = [];
+
+  const shouldPublish = input.publish ?? (sourcePlan.status === "published");
+
+  for (const targetSection of targetSections) {
+    const draftResult = await saveTimetableDraft({
+      collegeId: input.collegeId,
+      courseId: input.courseId,
+      branchId: input.branchId,
+      academicYear: input.academicYear,
+      batch: input.batch,
+      year: input.year ?? null,
+      semester: input.semester,
+      section: targetSection,
+      notes: `Combined from Section ${mainSection} (Plan #${sourcePlan.id})`,
+      assignments,
+      actorUserId: input.actorUserId,
+      ipAddress: input.ipAddress,
+    });
+
+    let finalStatus = draftResult.status;
+    let finalVersion = draftResult.versionNo;
+
+    if (shouldPublish) {
+      try {
+        const pubResult = await publishTimetablePlan(draftResult.planId, {
+          actorUserId: input.actorUserId,
+          ipAddress: input.ipAddress,
+        });
+        finalStatus = pubResult.status;
+        finalVersion = pubResult.versionNo;
+      } catch (pubErr) {
+        console.warn(`Could not auto-publish combined section ${targetSection}`, pubErr);
+      }
+    }
+
+    results.push({
+      section: targetSection,
+      planId: draftResult.planId,
+      status: finalStatus,
+      versionNo: finalVersion,
+      copiedAssignmentsCount: assignments.length,
+    });
+  }
+
+  return {
+    success: true,
+    mainSection,
+    sourcePlanId: sourcePlan.id,
+    sourcePlanStatus: sourcePlan.status,
+    totalAssignments: assignments.length,
+    results,
+    message: `Successfully combined timetable: Section ${mainSection} copied to Section${results.length > 1 ? "s" : ""} ${results.map((r) => r.section).join(", ")}.`,
+  };
 }
 
 export async function getTimetableCoverage(filters: TimetablePlannerFilters = {}) {
@@ -2334,6 +2513,130 @@ export async function getTimingTemplateForFilters(filters: TimetablePlannerFilte
     academicYear: filters.academicYear,
     semester: filters.semester,
   });
+}
+
+export type TimetableRosterStudent = {
+  id: number;
+  pin_no: string | null;
+  student_name: string | null;
+  admission_number: string;
+  section: string | null;
+  batch: string | null;
+  current_year: number | null;
+  current_semester: number | null;
+};
+
+export async function getTimetableRoster(
+  filters: TimetablePlannerFilters,
+): Promise<TimetableRosterStudent[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.collegeId) {
+    where.push("s.college_id = ?");
+    params.push(filters.collegeId);
+  }
+  if (filters.branchId) {
+    where.push("s.branch_id = ?");
+    params.push(filters.branchId);
+  } else if (filters.branchIds && filters.branchIds.length > 0) {
+    where.push(`s.branch_id IN (${filters.branchIds.map(() => "?").join(", ")})`);
+    params.push(...filters.branchIds);
+  }
+  if (filters.courseId) {
+    where.push("s.course_id = ?");
+    params.push(filters.courseId);
+  }
+  if (filters.year != null) {
+    where.push("s.current_year = ?");
+    params.push(filters.year);
+  }
+  if (filters.batch) {
+    const rawBatch = String(filters.batch).trim();
+    const fourDigit = rawBatch.slice(0, 4);
+    where.push("(TRIM(s.batch) = ? OR TRIM(s.batch) = ? OR s.batch LIKE ?)");
+    params.push(rawBatch, fourDigit, `${fourDigit}%`);
+  }
+
+  // Base query (without section constraint)
+  const baseSql = `
+    SELECT DISTINCT
+      s.id,
+      s.pin_no,
+      s.student_name,
+      s.admission_number,
+      COALESCE(ss.section_name, s.section) AS section,
+      s.batch,
+      s.current_year,
+      s.current_semester
+    FROM students s
+    LEFT JOIN student_sections ss ON ss.student_id = s.id
+    WHERE ${where.length > 0 ? where.join(" AND ") : "1=1"}
+  `;
+
+  // First attempt: with section if provided and not "all"
+  let rows: (RowDataPacket & TimetableRosterStudent)[] = [];
+  const hasSection = Boolean(filters.section && filters.section !== "all");
+
+  if (hasSection) {
+    const sectionSql = `${baseSql} AND (s.section = ? OR ss.section_name = ?) ORDER BY COALESCE(s.pin_no, s.admission_number, s.id) ASC LIMIT 500`;
+    rows = await queryStudent<(RowDataPacket & TimetableRosterStudent)[]>(
+      sectionSql,
+      [...params, filters.section, filters.section],
+    );
+  }
+
+  // Fallback 1: if section had 0 students (or no section specified), query without section filter
+  if (rows.length === 0) {
+    const fallbackSql = `${baseSql} ORDER BY COALESCE(s.pin_no, s.admission_number, s.id) ASC LIMIT 500`;
+    rows = await queryStudent<(RowDataPacket & TimetableRosterStudent)[]>(
+      fallbackSql,
+      params,
+    );
+  }
+
+  // Fallback 2: if still 0 rows and batch was specified, try without batch restriction (match by year/branch)
+  if (rows.length === 0 && filters.batch && filters.year != null) {
+    const noBatchWhere = where.filter((w) => !w.includes("s.batch"));
+    const noBatchParams: unknown[] = [];
+    if (filters.collegeId) noBatchParams.push(filters.collegeId);
+    if (filters.branchId) noBatchParams.push(filters.branchId);
+    else if (filters.branchIds && filters.branchIds.length > 0) noBatchParams.push(...filters.branchIds);
+    if (filters.courseId) noBatchParams.push(filters.courseId);
+    if (filters.year != null) noBatchParams.push(filters.year);
+
+    const wideSql = `
+      SELECT DISTINCT
+        s.id,
+        s.pin_no,
+        s.student_name,
+        s.admission_number,
+        COALESCE(ss.section_name, s.section) AS section,
+        s.batch,
+        s.current_year,
+        s.current_semester
+      FROM students s
+      LEFT JOIN student_sections ss ON ss.student_id = s.id
+      WHERE ${noBatchWhere.length > 0 ? noBatchWhere.join(" AND ") : "1=1"}
+      ORDER BY COALESCE(s.pin_no, s.admission_number, s.id) ASC
+      LIMIT 500
+    `;
+    rows = await queryStudent<(RowDataPacket & TimetableRosterStudent)[]>(
+      wideSql,
+      noBatchParams,
+    );
+  }
+
+  return rows.map((r) => ({
+    id: Number(r.id),
+    pin_no: r.pin_no ?? null,
+    student_name: r.student_name ?? null,
+    admission_number: r.admission_number ?? "",
+    section: r.section ?? null,
+    batch: r.batch ?? null,
+    current_year: r.current_year != null ? Number(r.current_year) : null,
+    current_semester: r.current_semester != null ? Number(r.current_semester) : null,
+  }));
 }
 
 export { getTimingTemplateDetail };
