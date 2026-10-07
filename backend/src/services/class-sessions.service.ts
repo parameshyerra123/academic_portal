@@ -296,19 +296,19 @@ export async function generateClassSessions(input: {
     throw new Error("startDate and endDate must both be provided when overriding the semester window");
   }
 
-  const startDate = requestedStart ?? semesterWindow?.startDate ?? null;
-  const endDate = requestedEnd ?? semesterWindow?.endDate ?? null;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let startDate = requestedStart ?? semesterWindow?.startDate ?? null;
+  let endDate = requestedEnd ?? semesterWindow?.endDate ?? null;
+
+  // If no override was requested and the semester window end date is in the past, extend to today so active timetable works
+  if (!requestedStart && !requestedEnd && startDate && endDate && endDate < todayIso) {
+    endDate = todayIso;
+  }
+
   if (!startDate || !endDate) {
     throw new Error(
       "Semester dates not found in Student Database for this college / course / batch / year / semester. Set dates in Settings → Semester Dates, or pass startDate and endDate.",
     );
-  }
-
-  if (semesterWindow?.startDate && requestedStart && requestedStart < semesterWindow.startDate) {
-    return { created: 0, skippedHolidayDates: 0, skippedExisting: 0, skippedNoClasses: 0 };
-  }
-  if (semesterWindow?.endDate && requestedStart && requestedStart > semesterWindow.endDate) {
-    return { created: 0, skippedHolidayDates: 0, skippedExisting: 0, skippedNoClasses: 0 };
   }
 
   const holidayScope = {
@@ -439,6 +439,22 @@ export async function generateClassSessions(input: {
              room_label, batch_label, student_ids, student_count, weekly_rotation,
              rotation_pattern, status)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
+          ON DUPLICATE KEY UPDATE
+            plan_id = VALUES(plan_id),
+            faculty_staff_link_id = VALUES(faculty_staff_link_id),
+            subject_id = VALUES(subject_id),
+            subject_code = VALUES(subject_code),
+            subject_name = VALUES(subject_name),
+            subject_type_snapshot = VALUES(subject_type_snapshot),
+            room_label = VALUES(room_label),
+            batch_label = VALUES(batch_label),
+            student_ids = VALUES(student_ids),
+            student_count = VALUES(student_count),
+            start_time = VALUES(start_time),
+            end_time = VALUES(end_time),
+            weekly_rotation = VALUES(weekly_rotation),
+            rotation_pattern = VALUES(rotation_pattern),
+            status = IF(status = 'posted', status, 'scheduled')
           `,
           [
             entry.entry_id,
@@ -527,6 +543,8 @@ export async function getClassSessionById(sessionId: number) {
 }
 
 export async function listPublishedPlanIds(filters: {
+  planId?: number;
+  publishedTimetablePlanId?: number;
   collegeId?: number;
   collegeIds?: number[];
   courseId?: number;
@@ -542,6 +560,12 @@ export async function listPublishedPlanIds(filters: {
 }) {
   const where = ["status = 'published'"];
   const params: unknown[] = [];
+
+  const targetPlanId = filters.planId ?? filters.publishedTimetablePlanId;
+  if (targetPlanId != null) {
+    where.push("id = ?");
+    params.push(targetPlanId);
+  }
 
   if (filters.facultyStaffLinkId != null) {
     where.push(

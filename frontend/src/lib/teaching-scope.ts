@@ -36,7 +36,18 @@ export function isSuperAdminUser(authorization: Authorization | null): boolean {
 
 /** Faculty / teaching staff without institute-wide admin permissions. */
 export function isTeachingStaffOnly(authorization: Authorization | null): boolean {
-  if (!authorization?.permissions?.length) return false;
+  if (!authorization) return false;
+  // If user has any leadership role (Super Admin, Principal, VP, HOD), they are leadership
+  const isLeadership = authorization.roles?.some((role) =>
+    REQUEST_DELEGATE_ROLE_KEYS.has(role.roleKey),
+  );
+  if (isLeadership) return false;
+
+  // Staff role users are teaching staff
+  const isStaffRole = authorization.roles?.some((role) => role.roleKey === "staff");
+  if (isStaffRole) return true;
+
+  if (!authorization.permissions?.length) return false;
   const perms = authorization.permissions;
   const hasTeachingAccess =
     perms.includes("attendance.view") ||

@@ -25,8 +25,23 @@ export async function resolveStaffLinkIdForUser(userId: number): Promise<number 
   return id != null ? Number(id) : null;
 }
 
+const LEADERSHIP_ROLE_KEYS = new Set([
+  "super_admin",
+  "principal",
+  "vice_principal",
+  "hod",
+]);
+
 /** Faculty / teaching staff without institute-wide admin permissions. */
 export function shouldRestrictToOwnTeachingLoad(authz: AuthzContext): boolean {
+  // If user has leadership oversight roles, do not restrict to own load only
+  const isLeadership = authz.roles?.some((role) => LEADERSHIP_ROLE_KEYS.has(role.roleKey));
+  if (isLeadership) return false;
+
+  // Users with staff role are teaching staff and strictly restricted to own teaching load
+  const isStaffRole = authz.roles?.some((role) => role.roleKey === "staff");
+  if (isStaffRole) return true;
+
   const hasTeachingAccess =
     authz.permissions.includes("attendance.view") ||
     authz.permissions.includes("attendance.post") ||

@@ -115,6 +115,7 @@ type PeriodOverride = {
   subjectId: string;
   subjectCode: string;
   subjectName: string;
+  customLabel?: string;
   hrmsEmployeeId: string;
   facultyName: string;
   remarks?: string | null;
@@ -702,6 +703,7 @@ function PeriodEditModal({
   dayLabel,
   masterEntry,
   currentOverride,
+  candidateSlots = [],
   subjects,
   faculty,
   canEdit = true,
@@ -709,6 +711,7 @@ function PeriodEditModal({
   onClose,
 }: {
   slot: { id: number; label: string; startTime: string; endTime: string };
+  candidateSlots?: Array<{ id: number; label: string; startTime: string; endTime: string; slotType?: string; isAssignable?: boolean }>;
   date: string;
   dayLabel: string;
   masterEntry: SlotCellEntry | null;
@@ -720,9 +723,33 @@ function PeriodEditModal({
     override: PeriodOverride | null;
     isRevert: boolean;
     remarks: string;
+    slotIds?: number[];
   }) => void;
   onClose: () => void;
 }) {
+  const currentSlotIndex = useMemo(() => {
+    if (!candidateSlots || candidateSlots.length === 0) return -1;
+    return candidateSlots.findIndex((s) => s.id === slot.id);
+  }, [candidateSlots, slot.id]);
+
+  const subsequentSlots = useMemo(() => {
+    if (!candidateSlots || candidateSlots.length === 0 || currentSlotIndex < 0) return [slot];
+    return candidateSlots
+      .slice(currentSlotIndex)
+      .filter((s) => !isNonClassTimingSlot({ label: s.label, slotType: s.slotType ?? "CLASS" }));
+  }, [candidateSlots, currentSlotIndex, slot]);
+
+  const [selectedSlotIds, setSelectedSlotIds] = useState<number[]>([slot.id]);
+
+  const [periodType, setPeriodType] = useState<"subject" | "special">(() => {
+    if (currentOverride?.customLabel) return "special";
+    if (!currentOverride?.subjectId && masterEntry?.customLabel) return "special";
+    return "subject";
+  });
+  const [customLabel, setCustomLabel] = useState(
+    currentOverride?.customLabel || (masterEntry?.customLabel ?? "CRT"),
+  );
+
   const [subjectId, setSubjectId] = useState(
     currentOverride?.subjectId ?? (masterEntry?.subjectId != null ? String(masterEntry.subjectId) : ""),
   );
@@ -750,17 +777,45 @@ function PeriodEditModal({
   const isPeriodModified = Boolean(
     currentOverride &&
       (currentOverride.subjectId !== (masterEntry?.subjectId != null ? String(masterEntry.subjectId) : "") ||
-        currentOverride.hrmsEmployeeId !== (masterEntry?.facultyHrmsId || "")),
+        currentOverride.hrmsEmployeeId !== (masterEntry?.facultyHrmsId || "") ||
+        (currentOverride.customLabel || "").trim().toLowerCase() !== (masterEntry?.customLabel || "").trim().toLowerCase()),
   );
 
   const handleSave = () => {
     if (!canEdit) return;
-    const sub = subjects.find((s) => String(s.id) === subjectId);
     const fac = faculty.find((f) => f.hrmsEmployeeId === hrmsEmployeeId);
+
+    if (periodType === "special") {
+      const cleanCustom = customLabel.trim();
+      if (!cleanCustom && !hrmsEmployeeId) {
+        onSave({ override: null, isRevert: true, remarks, slotIds: selectedSlotIds });
+        return;
+      }
+      onSave({
+        override: {
+          slotId: slot.id,
+          slotLabel: slot.label,
+          slotTime: `${slot.startTime}–${slot.endTime}`,
+          subjectId: "",
+          subjectCode: "",
+          subjectName: cleanCustom,
+          customLabel: cleanCustom,
+          hrmsEmployeeId,
+          facultyName: fac?.name ?? "",
+          remarks,
+        },
+        isRevert: false,
+        remarks,
+        slotIds: selectedSlotIds,
+      });
+      return;
+    }
+
+    const sub = subjects.find((s) => String(s.id) === subjectId);
 
     // If completely cleared, revert to master
     if (!sub && !hrmsEmployeeId) {
-      onSave({ override: null, isRevert: true, remarks });
+      onSave({ override: null, isRevert: true, remarks, slotIds: selectedSlotIds });
       return;
     }
 
@@ -778,12 +833,13 @@ function PeriodEditModal({
       },
       isRevert: false,
       remarks,
+      slotIds: selectedSlotIds,
     });
   };
 
   const handleRevert = () => {
     if (!canEdit) return;
-    onSave({ override: null, isRevert: true, remarks: "Reverted to master timetable" });
+    onSave({ override: null, isRevert: true, remarks: "Reverted to master timetable", slotIds: selectedSlotIds });
   };
 
   return (
@@ -833,6 +889,77 @@ function PeriodEditModal({
                 <p className="text-[11px] text-emerald-700 mt-0.5">
                   Today's schedule matches the baseline master timetable for this period.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* Multi-Period Range Selector (allows editing P7, P8, P9 together) */}
+          {subsequentSlots.length > 1 && canEdit && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 shadow-2xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-4 w-4 text-indigo-700" />
+                  <span className="text-xs font-bold text-indigo-950">
+                    Apply change to multiple periods on {dayLabel}:
+                  </span>
+                  <span className="rounded bg-indigo-200/90 px-1.5 py-0.2 text-[10.5px] font-bold text-indigo-900">
+                    {selectedSlotIds.length} Period{selectedSlotIds.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3].map((count) => {
+                    if (subsequentSlots.length < count) return null;
+                    const isCurrent = selectedSlotIds.length === count;
+                    return (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setSelectedSlotIds(subsequentSlots.slice(0, count).map((s) => s.id))}
+                        className={cn(
+                          "rounded-md px-2 py-0.5 text-[11px] font-bold transition-all border cursor-pointer",
+                          isCurrent
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                            : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-100",
+                        )}
+                      >
+                        {count} Period{count > 1 ? "s" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {subsequentSlots.slice(0, 8).map((cSlot) => {
+                  const isSelected = selectedSlotIds.includes(cSlot.id);
+                  const isBase = cSlot.id === slot.id;
+                  return (
+                    <button
+                      key={cSlot.id}
+                      type="button"
+                      onClick={() => {
+                        if (isBase) return;
+                        const clickedIdx = subsequentSlots.findIndex((s) => s.id === cSlot.id);
+                        if (isSelected) {
+                          setSelectedSlotIds(subsequentSlots.slice(0, clickedIdx).map((s) => s.id));
+                        } else {
+                          setSelectedSlotIds(subsequentSlots.slice(0, clickedIdx + 1).map((s) => s.id));
+                        }
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-all border cursor-pointer",
+                        isSelected
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300",
+                      )}
+                    >
+                      <span>{cSlot.label}</span>
+                      <span className="text-[10px] opacity-75">({cSlot.startTime})</span>
+                      {isSelected ? <Check className="h-3 w-3 ml-0.5" /> : null}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -932,23 +1059,84 @@ function PeriodEditModal({
 
                 {canEdit ? (
                   <div className="space-y-3">
-                    {/* Subject Selector */}
+                    {/* Period Mode Selector: Subject vs Special Class */}
                     <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                        Subject for {formatDate(fromYMD(date))}
-                      </label>
-                      <select
-                        className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        value={subjectId}
-                        onChange={(e) => setSubjectId(e.target.value)}
-                      >
-                        <option value="">— Free / Unassigned Period —</option>
-                        {subjects.map((s) => (
-                          <option key={s.id} value={String(s.id)}>
-                            {s.code} — {s.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex rounded-lg border border-slate-200 bg-slate-100/90 p-0.5 text-xs mb-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setPeriodType("subject")}
+                          className={cn(
+                            "flex-1 rounded-md py-1 text-center font-bold transition-all cursor-pointer",
+                            periodType === "subject"
+                              ? "bg-white text-navy-900 shadow-xs"
+                              : "text-slate-600 hover:text-slate-900",
+                          )}
+                        >
+                          Subject Class
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPeriodType("special")}
+                          className={cn(
+                            "flex-1 rounded-md py-1 text-center font-bold transition-all cursor-pointer",
+                            periodType === "special"
+                              ? "bg-white text-purple-900 shadow-xs ring-1 ring-purple-200"
+                              : "text-slate-600 hover:text-slate-900",
+                          )}
+                        >
+                          Special / Custom Class
+                        </button>
+                      </div>
+
+                      {periodType === "subject" ? (
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                            Subject for {formatDate(fromYMD(date))}
+                          </label>
+                          <select
+                            className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            value={subjectId}
+                            onChange={(e) => setSubjectId(e.target.value)}
+                          >
+                            <option value="">— Free / Unassigned Period —</option>
+                            {subjects.map((s) => (
+                              <option key={s.id} value={String(s.id)}>
+                                {s.code} — {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-purple-900 mb-1">
+                            Special Class / Custom Label
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. CRT, LIBRARY, SPORTS…"
+                            value={customLabel}
+                            onChange={(e) => setCustomLabel(e.target.value.toUpperCase())}
+                            className="h-9 w-full rounded-lg border border-purple-300 bg-white px-2.5 text-xs font-bold text-purple-950 uppercase outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 mb-2"
+                          />
+                          <div className="flex flex-wrap gap-1">
+                            {["CRT", "LIBRARY", "SPORTS", "SEMINAR", "PLACEMENT", "PROJECT", "MENTORING", "FREE"].map((lbl) => (
+                              <button
+                                key={lbl}
+                                type="button"
+                                onClick={() => setCustomLabel(lbl)}
+                                className={cn(
+                                  "rounded px-2 py-0.5 text-[10.5px] font-bold transition-all border cursor-pointer",
+                                  customLabel === lbl
+                                    ? "bg-purple-700 text-white border-purple-700 shadow-xs"
+                                    : "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100",
+                                )}
+                              >
+                                {lbl}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Faculty Selector */}
@@ -1087,7 +1275,13 @@ function PeriodEditModal({
             <Button variant="secondary" onClick={onClose}>
               {canEdit ? "Cancel" : "Close"}
             </Button>
-            {canEdit && <Button onClick={handleSave}>Save Change</Button>}
+            {canEdit && (
+              <Button onClick={handleSave}>
+                {selectedSlotIds.length > 1
+                  ? `Save Changed Periods (${selectedSlotIds.length})`
+                  : "Save Change"}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1183,6 +1377,7 @@ function TodayPeriodGrid({
             const changed = isChanged(slot.id);
 
             const displaySubjectName =
+              override?.customLabel ||
               override?.subjectName ||
               masterEntry?.customLabel ||
               masterEntry?.subjectName ||
@@ -1198,7 +1393,7 @@ function TodayPeriodGrid({
             const isLunchBreak =
               isBreak &&
               (slot.slotType === "LUNCH" || timingSlotDisplayLabel(slot) === "Lunch Break");
-            const isSpecial = Boolean(masterEntry?.customLabel);
+            const isSpecial = Boolean(override?.customLabel || masterEntry?.customLabel);
 
             if (isBreak) {
               if (isLunchBreak) {
@@ -1232,7 +1427,7 @@ function TodayPeriodGrid({
               );
             }
 
-            if (isSpecial) {
+            if (isSpecial && !changed) {
               return (
                 <button
                   key={slot.id}
@@ -1377,6 +1572,7 @@ function TodayPeriodGrid({
             const changed = isChanged(slot.id);
 
             const displaySubjectName =
+              override?.customLabel ||
               override?.subjectName ||
               masterEntry?.customLabel ||
               masterEntry?.subjectName ||
@@ -1424,7 +1620,7 @@ function TodayPeriodGrid({
                   "rounded-xl border p-3 flex flex-col justify-between text-left min-h-[96px] shadow-2xs hover:shadow-md transition-all cursor-pointer",
                   changed
                     ? "border-rose-300 bg-rose-50/60 ring-1 ring-rose-200"
-                    : masterEntry?.customLabel
+                    : (masterEntry?.customLabel && !changed)
                     ? "border-purple-200 bg-purple-50/40"
                     : "border-slate-200 bg-white"
                 )}
@@ -1439,7 +1635,7 @@ function TodayPeriodGrid({
                     </span>
                   </div>
 
-                  {masterEntry?.customLabel ? (
+                  {masterEntry?.customLabel && !changed ? (
                     <div>
                       <p className="text-xs font-bold uppercase text-purple-900">
                         {masterEntry.customLabel}
@@ -1912,12 +2108,18 @@ export function TodayTimetableView() {
     if (!override) return false;
     const master = getCohortMasterEntry(cohort, slotId);
     if (!master) {
-      return Boolean(override.subjectId || override.hrmsEmployeeId);
+      return Boolean(override.subjectId || override.hrmsEmployeeId || override.customLabel || override.subjectName);
     }
-    const subjectMatches =
-      override.subjectId === (master.subjectId != null ? String(master.subjectId) : "");
-    const facultyMatches =
-      override.hrmsEmployeeId === (master.facultyHrmsId || "");
+    const masterSubId = master.subjectId != null ? String(master.subjectId) : "";
+    const masterSubName = (master.customLabel || master.subjectName || "").trim().toLowerCase();
+    const masterFacHrms = (master.facultyHrmsId || "").trim();
+
+    const overSubId = (override.subjectId || "").trim();
+    const overSubName = (override.customLabel || override.subjectName || "").trim().toLowerCase();
+    const overFacHrms = (override.hrmsEmployeeId || "").trim();
+
+    const subjectMatches = (overSubId && masterSubId) ? overSubId === masterSubId : overSubName === masterSubName;
+    const facultyMatches = overFacHrms === masterFacHrms;
     return !subjectMatches || !facultyMatches;
   }
 
@@ -1931,12 +2133,18 @@ export function TodayTimetableView() {
     if (!override) return false;
     const master = getMasterEntry(slotId);
     if (!master) {
-      return Boolean(override.subjectId || override.hrmsEmployeeId);
+      return Boolean(override.subjectId || override.hrmsEmployeeId || override.customLabel || override.subjectName);
     }
-    const subjectMatches =
-      override.subjectId === (master.subjectId != null ? String(master.subjectId) : "");
-    const facultyMatches =
-      override.hrmsEmployeeId === (master.facultyHrmsId || "");
+    const masterSubId = master.subjectId != null ? String(master.subjectId) : "";
+    const masterSubName = (master.customLabel || master.subjectName || "").trim().toLowerCase();
+    const masterFacHrms = (master.facultyHrmsId || "").trim();
+
+    const overSubId = (override.subjectId || "").trim();
+    const overSubName = (override.customLabel || override.subjectName || "").trim().toLowerCase();
+    const overFacHrms = (override.hrmsEmployeeId || "").trim();
+
+    const subjectMatches = (overSubId && masterSubId) ? overSubId === masterSubId : overSubName === masterSubName;
+    const facultyMatches = overFacHrms === masterFacHrms;
     return !subjectMatches || !facultyMatches;
   }
 
@@ -1965,12 +2173,15 @@ export function TodayTimetableView() {
     override: PeriodOverride | null;
     isRevert: boolean;
     remarks: string;
+    slotIds?: number[];
   }) => {
     if (!editingSlot || isPastDate || !canChangeTimetable) return;
     const { slot, masterEntry, cohort } = editingSlot;
 
     const newOverride = payload.override;
     const isRevert = payload.isRevert;
+    const targetSlotIds =
+      payload.slotIds && payload.slotIds.length > 0 ? payload.slotIds : [slot.id];
 
     const targetBatch = cohort ? cohort.batch : filters.batch;
     const targetSemester = cohort ? cohort.semester : filters.semester;
@@ -1980,7 +2191,7 @@ export function TodayTimetableView() {
       ? filters.section
       : null;
 
-    // Optimistically update local state
+    // Optimistically update local state for all target slot IDs
     if (cohort) {
       setAllBatchesData((prev) =>
         prev.map((b) => {
@@ -1990,10 +2201,15 @@ export function TodayTimetableView() {
             b.section === cohort.section
           ) {
             const nextOverrides = { ...b.overrides };
-            if (newOverride === null) {
-              delete nextOverrides[slot.id];
-            } else {
-              nextOverrides[slot.id] = newOverride;
+            for (const tSlotId of targetSlotIds) {
+              if (newOverride === null) {
+                delete nextOverrides[tSlotId];
+              } else {
+                nextOverrides[tSlotId] = {
+                  ...newOverride,
+                  slotId: tSlotId,
+                };
+              }
             }
             return { ...b, overrides: nextOverrides };
           }
@@ -2003,10 +2219,15 @@ export function TodayTimetableView() {
     } else {
       setOverrides((prev) => {
         const next = { ...prev };
-        if (newOverride === null) {
-          delete next[slot.id];
-        } else {
-          next[slot.id] = newOverride;
+        for (const tSlotId of targetSlotIds) {
+          if (newOverride === null) {
+            delete next[tSlotId];
+          } else {
+            next[tSlotId] = {
+              ...newOverride,
+              slotId: tSlotId,
+            };
+          }
         }
         return next;
       });
@@ -2033,6 +2254,7 @@ export function TodayTimetableView() {
         section: targetSection,
         academicYear: filters.academicYear,
         slotId: slot.id,
+        slotIds: targetSlotIds,
         slotLabel: slot.label,
         slotTime: `${slot.startTime}–${slot.endTime}`,
 
@@ -2044,7 +2266,7 @@ export function TodayTimetableView() {
 
         newSubjectId: newOverride?.subjectId ? Number(newOverride.subjectId) : null,
         newSubjectCode: newOverride?.subjectCode ?? null,
-        newSubjectName: newOverride?.subjectName ?? null,
+        newSubjectName: newOverride?.customLabel || newOverride?.subjectName || null,
         newFacultyHrmsId: newOverride?.hrmsEmployeeId ?? null,
         newFacultyName: newOverride?.facultyName ?? null,
 
@@ -2436,6 +2658,13 @@ export function TodayTimetableView() {
       {editingSlot && (
         <PeriodEditModal
           slot={editingSlot.slot}
+          candidateSlots={
+            editingSlot.cohort
+              ? (editingSlot.cohort.planner?.slotsByDay?.[selectedDayName] ?? []).filter(
+                  (s) => s.isActive !== false,
+                )
+              : daySlots
+          }
           date={selectedDate}
           dayLabel={selectedDayName}
           masterEntry={editingSlot.masterEntry}
