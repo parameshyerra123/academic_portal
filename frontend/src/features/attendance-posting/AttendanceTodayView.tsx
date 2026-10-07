@@ -194,7 +194,8 @@ export function AttendanceTodayView() {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiFetch(`/attendance/sessions?date=${date}`, {
+        const scopeParam = teachingStaffOnly || viewScope === "mine" ? "&scope=mine" : "";
+        const response = await apiFetch(`/attendance/sessions?date=${date}${scopeParam}`, {
           cache: "no-store",
         });
         const body = await response.json().catch(() => ({}));
@@ -219,7 +220,7 @@ export function AttendanceTodayView() {
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, viewScope, teachingStaffOnly]);
 
   // Automatically default to "mine" if user has personal teaching slots, or "all" if user has no assigned slots
   useEffect(() => {
@@ -271,25 +272,26 @@ export function AttendanceTodayView() {
   }, [date, weekInfo.days]);
 
   const allSessions = payload?.data ?? [];
+  const isMyOnlyScope = teachingStaffOnly || viewScope === "mine";
   const mySessions = useMemo(() => allSessions.filter((s) => s.isMySession), [allSessions]);
   const mySessionsCount = payload?.mySessionsCount ?? mySessions.length;
 
   // Available branch filter options if sessions span multiple branches
   const branchOptions = useMemo(() => {
     const map = new Map<number, string>();
-    const pool = !teachingStaffOnly && viewScope === "mine" ? mySessions : allSessions;
+    const pool = isMyOnlyScope ? mySessions : allSessions;
     pool.forEach((s) => {
       if (s.branchId != null) {
         map.set(s.branchId, s.branchName || `Branch ${s.branchId}`);
       }
     });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [allSessions, mySessions, teachingStaffOnly, viewScope]);
+  }, [allSessions, mySessions, isMyOnlyScope]);
 
   // Filter sessions by scope, branch, status, and search query
   const filteredSessions = useMemo(() => {
     return allSessions.filter((item) => {
-      if (!teachingStaffOnly && viewScope === "mine" && !item.isMySession) {
+      if (isMyOnlyScope && !item.isMySession) {
         return false;
       }
       if (selectedBranchId !== "all" && String(item.branchId) !== selectedBranchId) {
@@ -314,12 +316,12 @@ export function AttendanceTodayView() {
       }
       return true;
     });
-  }, [allSessions, teachingStaffOnly, viewScope, selectedBranchId, statusFilter, searchQuery]);
+  }, [allSessions, isMyOnlyScope, selectedBranchId, statusFilter, searchQuery]);
 
   const displayedScopeSessions = useMemo(() => {
-    if (!teachingStaffOnly && viewScope === "mine") return mySessions;
+    if (isMyOnlyScope) return mySessions;
     return allSessions;
-  }, [allSessions, mySessions, teachingStaffOnly, viewScope]);
+  }, [allSessions, mySessions, isMyOnlyScope]);
 
   const totalPending = useMemo(() => displayedScopeSessions.filter((s) => !s.posted).length, [displayedScopeSessions]);
   const totalPosted = useMemo(() => displayedScopeSessions.filter((s) => s.posted).length, [displayedScopeSessions]);
@@ -620,7 +622,7 @@ export function AttendanceTodayView() {
 
             <div className="flex items-center gap-3 text-[10px] sm:text-xs font-medium text-slate-600">
               <div>
-                Total Scheduled:{" "}
+                {teachingStaffOnly ? "My Assigned Periods: " : "Total Scheduled: "}
                 <span className="font-bold text-navy-900">
                   {displayedScopeSessions.length}
                 </span>
@@ -639,7 +641,14 @@ export function AttendanceTodayView() {
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-white p-2 text-xs shadow-xs">
               <div className="flex flex-wrap items-center gap-1.5">
                 {/* Scope Switcher for Leadership / HODs: My Attendance vs All Department Slots */}
-                {!teachingStaffOnly ? (
+                {teachingStaffOnly ? (
+                  <div className="flex items-center gap-1.5 border-r border-border pr-2.5 mr-1">
+                    <span className="rounded bg-navy-50 border border-navy-200 px-2.5 py-1 text-[11px] font-bold text-navy-800 flex items-center gap-1.5 shadow-2xs">
+                      <Clock className="h-3 w-3 text-navy-700" />
+                      <span>My Assigned Periods: {displayedScopeSessions.length}</span>
+                    </span>
+                  </div>
+                ) : (
                   <div className="flex items-center gap-1 border-r border-border pr-2 mr-1">
                     <span className="text-[11px] text-slate-500 font-semibold">Scope:</span>
                     <button
@@ -683,7 +692,7 @@ export function AttendanceTodayView() {
                       </span>
                     </button>
                   </div>
-                ) : null}
+                )}
 
                 {/* Branch options filter if more than 1 branch */}
                 {branchOptions.length > 1 ? (
@@ -792,15 +801,15 @@ export function AttendanceTodayView() {
             <Card className="py-8 px-4 text-center">
               <Calendar className="mx-auto h-7 w-7 text-slate-400" />
               <p className="mt-2 text-sm font-bold text-navy-900">
-                {!teachingStaffOnly && viewScope === "mine"
-                  ? "No personal teaching slots scheduled for this date."
+                {isMyOnlyScope
+                  ? "No assigned teaching slots scheduled for this date."
                   : `No class sessions scheduled for ${selectedDayInfo.fullLabel}.`}
               </p>
               <div className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
-                {!teachingStaffOnly && viewScope === "mine" ? (
+                {isMyOnlyScope ? (
                   <>
-                    <p>You have no personal slots assigned to teach on {selectedDayInfo.fullLabel}.</p>
-                    {allSessions.length > 0 ? (
+                    <p>You have no classes or periods assigned to teach on {selectedDayInfo.fullLabel}.</p>
+                    {!teachingStaffOnly && allSessions.length > 0 ? (
                       <div className="mt-2.5">
                         <Button
                           type="button"
@@ -835,13 +844,16 @@ export function AttendanceTodayView() {
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-1.5 border-b border-border/50 pb-1.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-navy-800 bg-navy-50 px-1.5 py-0.5 rounded">
-                        <Clock className="h-3 w-3" />
-                        {item.startTime ?? "—"}
-                        {item.endTime ? `–${item.endTime}` : ""}
-                        {item.slotLabel ? ` • ${item.slotLabel}` : ""}
+                      {item.slotLabel ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold text-navy-900 bg-navy-100/90 border border-navy-200 px-2 py-0.5 rounded shadow-2xs">
+                          {item.slotLabel}
+                        </span>
+                      ) : null}
+                      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                        <Clock className="h-3 w-3 text-slate-500" />
+                        {item.startTime ?? "—"}{item.endTime ? ` – ${item.endTime}` : ""}
                       </span>
-                      {item.isMySession ? (
+                      {item.isMySession && !teachingStaffOnly ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
                           ★ My Slot
                         </span>

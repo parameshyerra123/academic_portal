@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
-import { ArrowUpDown, Check, Layers, Plus, Printer, Search, Users } from "lucide-react";
+import { ArrowUpDown, Check, FlaskConical, Layers, Plus, Printer, Search, Users } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
@@ -14,6 +14,11 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { TimingEditorDrawer } from "@/features/timetables/TimingEditorDrawer";
 import { CombineSectionsModal } from "@/features/timetables/CombineSectionsModal";
+import {
+  LabPeriodSelectionModal,
+  AssignableSlot,
+  ExistingSlotSummary,
+} from "@/features/timetables/LabPeriodSelectionModal";
 import {
   classPeriodCellClass,
   emptyPeriodCellClass,
@@ -292,6 +297,10 @@ function AllocationEditorCard({
   fieldClass,
   onChange,
   onRemove,
+  onSelectLabType,
+  selectedPeriodSlotIds = [],
+  selectedPeriodLabels = [],
+  dayLabel = "",
 }: {
   alloc: DraftAllocation;
   index: number;
@@ -305,6 +314,10 @@ function AllocationEditorCard({
   fieldClass: string;
   onChange: (patch: Partial<DraftAllocation>) => void;
   onRemove: () => void;
+  onSelectLabType?: () => void;
+  selectedPeriodSlotIds?: number[];
+  selectedPeriodLabels?: string[];
+  dayLabel?: string;
 }) {
   const filteredFaculty = useMemo(() => {
     const list = planner.faculty ?? [];
@@ -511,6 +524,9 @@ function AllocationEditorCard({
                   facultySearch: "",
                   facultyOpen: false,
                 });
+                if (entryType === "lab" && alloc.entryType !== "lab") {
+                  onSelectLabType?.();
+                }
               }}
             >
               <option value="">Select subject</option>
@@ -537,20 +553,57 @@ function AllocationEditorCard({
         </label>
 
         {alloc.mode === "subject" ? (
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-slate-700">Class Type</span>
-            <select
-              className={fieldClass}
-              value={alloc.entryType}
-              onChange={(e) =>
-                onChange({ entryType: e.target.value as "theory" | "lab" | "other" })
-              }
-            >
-              <option value="theory">Theory</option>
-              <option value="lab">Lab</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
+          <div className="space-y-2">
+            <label className="block text-sm">
+              <span className="mb-1.5 block font-medium text-slate-700">Class Type</span>
+              <select
+                className={fieldClass}
+                value={alloc.entryType}
+                onChange={(e) => {
+                  const newType = e.target.value as "theory" | "lab" | "other";
+                  onChange({ entryType: newType });
+                  if (newType === "lab") {
+                    onSelectLabType?.();
+                  }
+                }}
+              >
+                <option value="theory">Theory</option>
+                <option value="lab">Lab</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+
+            {alloc.entryType === "lab" && (
+              <div className="flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50/80 p-2.5 text-xs text-purple-950 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-purple-600 text-white shadow-xs">
+                    <FlaskConical className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <span>Lab Duration:</span>
+                      <span className="rounded bg-purple-200/90 px-1.5 py-0.2 text-[10.5px] font-bold text-purple-900">
+                        {selectedPeriodLabels.length > 0 ? selectedPeriodLabels.join(", ") : "1 Period"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-purple-700 block">
+                      {selectedPeriodSlotIds.length > 1
+                        ? `Spans ${selectedPeriodSlotIds.length} periods on ${dayLabel}`
+                        : "Click to span across multiple periods (e.g. 3, 4)"}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onSelectLabType}
+                  className="rounded-lg border border-purple-300 bg-white hover:bg-purple-100 text-purple-800 font-bold px-2.5 py-1 text-[11px] shadow-xs transition-colors cursor-pointer shrink-0"
+                >
+                  {selectedPeriodSlotIds.length > 1 ? "Edit Periods" : "+ Select Periods"}
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="block text-sm">
             <span className="mb-1.5 block font-medium text-slate-700">Type</span>
@@ -1043,6 +1096,8 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
   const [weeklyRotation, setWeeklyRotation] = useState(false);
   const [rotationPattern, setRotationPattern] = useState<number[]>([1, 2, 1, 2]);
   const [combineOpen, setCombineOpen] = useState(false);
+  const [labModalOpen, setLabModalOpen] = useState(false);
+  const [selectedPeriodSlotIds, setSelectedPeriodSlotIds] = useState<number[]>([]);
 
   const selectedBranch =
     filters.branchId === "all" || !masters
@@ -1224,7 +1279,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
             const customLabel = (ent.customLabel ?? "").trim();
             const isSpecial = Boolean(customLabel) && !ent.subjectId;
             const isSubjectClass =
-              Boolean(ent.subjectId) && Boolean(ent.facultyHrmsId);
+              Boolean(ent.subjectId) || Boolean(ent.facultyHrmsId) || Boolean(ent.facultyStaffLinkId);
             if (!isSpecial && !isSubjectClass) continue;
             loaded.push({
               dayOfWeek: DAY_LABEL_TO_CODE[day] ?? day,
@@ -1296,6 +1351,34 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     const dayCode = DAY_LABEL_TO_CODE[day] ?? day;
     const existingList = assignmentsBySlot.get(`${dayCode}:${cell.slotId}`) ?? [];
     setSelected({ day, slotId: cell.slotId });
+
+    // Detect if this slot is already part of a multi-period lab block
+    const isLab = existingList.some((i) => i.entryType === "lab");
+    if (isLab && planner) {
+      const daySlots = (planner.slotsByDay?.[day] ?? []).filter((s) => !isNonClassTimingSlot(s));
+      const currentIndex = daySlots.findIndex((s) => s.id === cell.slotId);
+      const spanned: number[] = [cell.slotId];
+      if (currentIndex >= 0) {
+        const firstSubjId = existingList[0]?.subjectId;
+        for (let i = currentIndex + 1; i < daySlots.length; i++) {
+          const nextSlot = daySlots[i];
+          const nextItems = assignmentsBySlot.get(`${dayCode}:${nextSlot.id}`) ?? [];
+          if (
+            nextItems.length > 0 &&
+            nextItems[0]?.subjectId === firstSubjId &&
+            nextItems[0]?.entryType === "lab"
+          ) {
+            spanned.push(nextSlot.id);
+          } else {
+            break;
+          }
+        }
+      }
+      setSelectedPeriodSlotIds(spanned);
+    } else {
+      setSelectedPeriodSlotIds([cell.slotId]);
+    }
+    setLabModalOpen(false);
 
     const hasRotation = existingList.some((item) => Boolean(item.weeklyRotation));
     const hasSplit =
@@ -1625,32 +1708,50 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
       }
     }
 
-    setAssignments((prev) => {
-      const next = prev.filter(
-        (a) => !(a.dayOfWeek === dayCode && a.timingSlotId === selected.slotId),
-      );
-      next.push(...newItems);
-      return next;
-    });
+    const targetSlotIds =
+      selectedPeriodSlotIds.length > 0
+        ? selectedPeriodSlotIds
+        : [selected.slotId];
 
+    const targetSlotIdSet = new Set(targetSlotIds);
+    const next = assignments.filter(
+      (a) => !(a.dayOfWeek === dayCode && targetSlotIdSet.has(a.timingSlotId)),
+    );
+    for (const tSlotId of targetSlotIds) {
+      for (const item of newItems) {
+        next.push({
+          ...item,
+          timingSlotId: tSlotId,
+        });
+      }
+    }
+
+    setAssignments(next);
     setSelected(null);
+    setLabModalOpen(false);
     setError(null);
+    void saveDraft(next);
   };
 
   const clearLocalAssignment = () => {
     if (!selected) return;
     const dayCode = DAY_LABEL_TO_CODE[selected.day] ?? selected.day;
-    setAssignments((prev) =>
-      prev.filter(
-        (a) => !(a.dayOfWeek === dayCode && a.timingSlotId === selected.slotId),
-      ),
+    const targetSlotIds = new Set(
+      selectedPeriodSlotIds.length > 0 ? selectedPeriodSlotIds : [selected.slotId],
     );
+    const next = assignments.filter(
+      (a) => !(a.dayOfWeek === dayCode && targetSlotIds.has(a.timingSlotId)),
+    );
+    setAssignments(next);
     setSelected(null);
+    setLabModalOpen(false);
     setError(null);
+    void saveDraft(next);
   };
 
-  const scopeBody = () => {
+  const scopeBody = (overrideAssignments?: LocalAssignment[]) => {
     if (!planner?.context || filters.collegeId === "all") return null;
+    const currentAssignments = overrideAssignments ?? assignments;
     return {
       collegeId: Number(filters.collegeId),
       courseId: Number(filters.courseId),
@@ -1660,7 +1761,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
       year: filters.year === "all" ? null : Number(filters.year),
       semester: Number(filters.semester),
       section: filters.section === "all" ? null : filters.section,
-      assignments: assignments.map((a) => ({
+      assignments: currentAssignments.map((a) => ({
         dayOfWeek: a.dayOfWeek,
         timingSlotId: a.timingSlotId,
         subjectId: a.subjectId,
@@ -1683,8 +1784,8 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     };
   };
 
-  const saveDraft = async () => {
-    const body = scopeBody();
+  const saveDraft = async (overrideAssignments?: LocalAssignment[]) => {
+    const body = scopeBody(overrideAssignments);
     if (!body) return;
     setBusy(true);
     setError(null);
@@ -1792,6 +1893,45 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     const daySlots = planner.slotsByDay?.[selected.day] ?? [];
     return daySlots.find((s) => s.id === selected.slotId) ?? null;
   }, [selected, planner]);
+
+  const assignableClassSlots: AssignableSlot[] = useMemo(() => {
+    if (!selected || !planner) return [];
+    const daySlots = planner.slotsByDay?.[selected.day] ?? [];
+    return daySlots
+      .filter((s) => !isNonClassTimingSlot(s))
+      .map((s) => ({
+        id: s.id,
+        label: timingSlotDisplayLabel(s),
+        startTime: s.startTime,
+        endTime: s.endTime,
+      }));
+  }, [selected, planner]);
+
+  const existingSlotsSummary: ExistingSlotSummary[] = useMemo(() => {
+    if (!selected) return [];
+    const dayCode = DAY_LABEL_TO_CODE[selected.day] ?? selected.day;
+    const summaries: ExistingSlotSummary[] = [];
+    for (const slot of assignableClassSlots) {
+      const items = assignmentsBySlot.get(`${dayCode}:${slot.id}`) ?? [];
+      if (items.length > 0) {
+        summaries.push({
+          slotId: slot.id,
+          subjectName: items[0].subjectName,
+          subjectCode: items[0].subjectCode,
+          facultyName: items[0].facultyName,
+          customLabel: items[0].customLabel,
+        });
+      }
+    }
+    return summaries;
+  }, [selected, assignableClassSlots, assignmentsBySlot]);
+
+  const selectedPeriodLabels = useMemo(() => {
+    if (!selectedPeriodSlotIds.length) return [];
+    return assignableClassSlots
+      .filter((s) => selectedPeriodSlotIds.includes(s.id))
+      .map((s) => s.label);
+  }, [assignableClassSlots, selectedPeriodSlotIds]);
 
   const uniqueAllocations = useMemo(() => {
     if (!planner?.days?.length) return [];
@@ -2461,6 +2601,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                               fieldClass={fieldClass}
                               onChange={(patch) => updateAllocation(idx, patch)}
                               onRemove={() => removeAllocation(idx)}
+                              onSelectLabType={() => setLabModalOpen(true)}
+                              selectedPeriodSlotIds={selectedPeriodSlotIds}
+                              selectedPeriodLabels={selectedPeriodLabels}
+                              dayLabel={selected.day}
                             />
                           );
                         })}
@@ -2651,6 +2795,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                       fieldClass={fieldClass}
                       onChange={(patch) => updateAllocation(0, patch)}
                       onRemove={() => {}}
+                      onSelectLabType={() => setLabModalOpen(true)}
+                      selectedPeriodSlotIds={selectedPeriodSlotIds}
+                      selectedPeriodLabels={selectedPeriodLabels}
+                      dayLabel={selected.day}
                     />
                   )}
                 </div>
@@ -2668,7 +2816,10 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
                       Cancel
                     </Button>
                     <Button onClick={saveLocalAssignment}>
-                      Save Period
+                      {slotAllocations.some((a) => a.entryType === "lab") &&
+                      selectedPeriodSlotIds.length > 1
+                        ? `Save Lab (${selectedPeriodLabels.join(", ")})`
+                        : "Save Period"}
                     </Button>
                   </div>
                 </div>
@@ -2795,6 +2946,21 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
           await loadPlanner();
         }}
       />
+
+      {selected && planner ? (
+        <LabPeriodSelectionModal
+          isOpen={labModalOpen}
+          onClose={() => setLabModalOpen(false)}
+          day={selected.day}
+          currentSlotId={selected.slotId}
+          assignableSlots={assignableClassSlots}
+          existingSlotsSummary={existingSlotsSummary}
+          initialSelectedSlotIds={selectedPeriodSlotIds}
+          onConfirm={(slotIds) => {
+            setSelectedPeriodSlotIds(slotIds);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

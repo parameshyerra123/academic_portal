@@ -29,6 +29,7 @@ import {
   ensureStaffUserForSubjectAssignment,
   syncStaffUserRolesForTimetableChanges,
 } from "./user-management.service.js";
+import { ensureSessionsForDate } from "./class-sessions.service.js";
 import type { PoolConnection } from "mysql2/promise";
 
 export type TimetablePlannerFilters = {
@@ -1351,9 +1352,17 @@ export async function validatePlanAssignments(
             otherStartMin < local.endMin &&
             local.startMin < otherEndMin
           ) {
-            clashMessages.add(
-              `Faculty clash: same staff on ${DAY_CODE_TO_LABEL[other.slot_day]} ${String(other.slot_start).slice(0, 5)}-${String(other.slot_end).slice(0, 5)} (also in plan #${other.other_plan_id}${other.other_section ? ` · ${other.other_section}` : ""})`,
-            );
+            const isCrossSectionParallel =
+              (other.other_section != null &&
+                plan.section_name != null &&
+                other.other_section.trim().toLowerCase() !== plan.section_name.trim().toLowerCase()) ||
+              Boolean(plan.notes?.includes("Combined"));
+            const msg = `same staff on ${DAY_CODE_TO_LABEL[other.slot_day]} ${String(other.slot_start).slice(0, 5)}-${String(other.slot_end).slice(0, 5)} (parallel in plan #${other.other_plan_id}${other.other_section ? ` · Section ${other.other_section}` : ""})`;
+            if (isCrossSectionParallel) {
+              warnings.push(`Combined/Parallel class: ${msg}`);
+            } else {
+              clashMessages.add(`Faculty clash: ${msg}`);
+            }
           }
         }
       }
@@ -2002,6 +2011,14 @@ export async function publishTimetablePlan(
         console.warn("Could not sync user roles after timetable publish", err);
       }
     }
+    // Immediately generate and sync class sessions for today so staff see the published classes right away
+    try {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      await ensureSessionsForDate(todayIso, { publishedTimetablePlanId: result.planId });
+    } catch (err) {
+      console.warn("Could not generate class sessions after timetable publish", err);
+    }
+
     return {
       planId: result.planId,
       status: result.status,

@@ -199,6 +199,9 @@ export function DashboardView() {
         if (canAttendance) {
           const attParams = new URLSearchParams(scopeParams);
           attParams.set("date", todayIso());
+          if (teachingStaffOnly) {
+            attParams.set("scope", "mine");
+          }
           reqs.push(
             apiFetch(`/attendance/sessions?${attParams}`)
               .then((res) => (res.ok ? res.json() : null))

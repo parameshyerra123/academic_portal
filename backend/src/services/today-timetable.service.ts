@@ -1,6 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import { executeAcademic, queryAcademic, queryStudent } from "../db/pools.js";
 import { getTimetablePlanner } from "./timetables.service.js";
+import { ensureSessionsForDate } from "./class-sessions.service.js";
 
 export type DailyTimetableFilter = {
   collegeId: number;
@@ -51,6 +52,7 @@ export type DailyPeriodOverride = {
   subjectId: string;
   subjectCode: string;
   subjectName: string;
+  customLabel?: string;
   hrmsEmployeeId: string;
   facultyName: string;
   remarks: string | null;
@@ -264,6 +266,7 @@ export async function getDailyTimetableData(filters: DailyTimetableFilter) {
       if (r.change_type === "REVERTED_TO_MASTER") {
         delete overrides[r.timing_slot_id];
       } else {
+        const isSpecialClass = r.new_subject_id == null && Boolean(r.new_subject_name);
         overrides[r.timing_slot_id] = {
           slotId: r.timing_slot_id,
           slotLabel: r.slot_label || "",
@@ -271,6 +274,7 @@ export async function getDailyTimetableData(filters: DailyTimetableFilter) {
           subjectId: r.new_subject_id != null ? String(r.new_subject_id) : "",
           subjectCode: r.new_subject_code || "",
           subjectName: r.new_subject_name || "",
+          customLabel: isSpecialClass ? (r.new_subject_name || "") : undefined,
           hrmsEmployeeId: r.new_faculty_hrms_id || "",
           facultyName: r.new_faculty_name || "",
           remarks: r.remarks,
@@ -355,6 +359,93 @@ export async function recordDailyTimetableChange(input: RecordPeriodOverrideInpu
       input.actorName ?? null,
     ],
   );
+
+  // Synchronize the override directly with ap_class_sessions so the assigned staff sees the class immediately
+  try {
+    let targetStaffLinkId: number | null = null;
+    const targetHrmsId =
+      changeType === "REVERTED_TO_MASTER"
+        ? input.masterFacultyHrmsId
+        : input.newFacultyHrmsId;
+    const targetFacName =
+      changeType === "REVERTED_TO_MASTER"
+        ? input.masterFacultyName
+        : input.newFacultyName;
+
+    if (targetHrmsId) {
+      const staffRows = await queryAcademic<(RowDataPacket & { id: number })[]>(
+        `SELECT id FROM ap_staff_link WHERE hrms_employee_id = ? LIMIT 1`,
+        [targetHrmsId],
+      );
+      if (staffRows[0]) {
+        targetStaffLinkId = Number(staffRows[0].id);
+      } else {
+        const insertRes = await executeAcademic(
+          `INSERT INTO ap_staff_link (hrms_employee_id, display_name) VALUES (?, ?)`,
+          [targetHrmsId, targetFacName ?? null],
+        );
+        targetStaffLinkId = Number(insertRes.insertId);
+      }
+    }
+
+    // Ensure sessions exist for this date before attempting update
+    try {
+      await ensureSessionsForDate(input.timetableDate, {
+        collegeId: input.collegeId,
+        courseId: input.courseId,
+        branchId: input.branchId,
+        batch: input.batch,
+        semester: input.semester,
+        section: input.sectionName && input.sectionName !== "all" ? input.sectionName : undefined,
+        academicYear: input.academicYear,
+      });
+    } catch (ensureErr) {
+      console.warn("Could not ensure sessions before applying daily override:", ensureErr);
+    }
+
+    const targetSubjectId =
+      changeType === "REVERTED_TO_MASTER" ? input.masterSubjectId : input.newSubjectId;
+    const targetSubjectCode =
+      changeType === "REVERTED_TO_MASTER" ? input.masterSubjectCode : input.newSubjectCode;
+    const targetSubjectName =
+      changeType === "REVERTED_TO_MASTER" ? input.masterSubjectName : input.newSubjectName;
+    const secName =
+      input.sectionName && input.sectionName !== "all" ? input.sectionName : null;
+
+    await executeAcademic(
+      `
+      UPDATE ap_class_sessions
+      SET faculty_staff_link_id = ?,
+          subject_id = COALESCE(?, subject_id),
+          subject_code = COALESCE(?, subject_code),
+          subject_name = COALESCE(?, subject_name),
+          status = IF(status = 'posted', status, 'scheduled')
+      WHERE session_date = ?
+        AND (timing_slot_id = ? OR period_slot_id = ?)
+        AND college_id = ?
+        AND branch_id = ?
+        AND semester_number = ?
+        AND (? IS NULL OR section_name = ?)
+        AND status <> 'posted'
+      `,
+      [
+        targetStaffLinkId,
+        targetSubjectId ?? null,
+        targetSubjectCode ?? null,
+        targetSubjectName ?? null,
+        input.timetableDate,
+        input.timingSlotId,
+        input.timingSlotId,
+        input.collegeId,
+        input.branchId,
+        input.semester,
+        secName,
+        secName,
+      ],
+    );
+  } catch (syncErr) {
+    console.warn("Could not synchronize daily timetable override to ap_class_sessions:", syncErr);
+  }
 
   return {
     activityId: result.insertId,

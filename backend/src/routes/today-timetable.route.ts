@@ -160,38 +160,55 @@ todayTimetableRouter.post("/override", requirePermission("today_timetable.edit",
       return;
     }
 
-    const result = await recordDailyTimetableChange({
-      timetableDate,
-      collegeId,
-      courseId,
-      branchId,
-      batch,
-      semester,
-      sectionName: str(body.section || body.sectionName),
-      academicYear,
-      timingSlotId,
-      slotLabel: str(body.slotLabel),
-      slotTime: str(body.slotTime),
+    const targetSlotIds: number[] =
+      Array.isArray(body.slotIds) && body.slotIds.length > 0
+        ? (body.slotIds as unknown[])
+            .map((id) => Number(id))
+            .filter((id) => !isNaN(id) && id > 0)
+        : timingSlotId
+          ? [timingSlotId]
+          : [];
 
-      masterSubjectId: num(body.masterSubjectId),
-      masterSubjectCode: str(body.masterSubjectCode),
-      masterSubjectName: str(body.masterSubjectName),
-      masterFacultyHrmsId: str(body.masterFacultyHrmsId),
-      masterFacultyName: str(body.masterFacultyName),
+    if (targetSlotIds.length === 0) {
+      res.status(400).json({ message: "Invalid timing slot ID" });
+      return;
+    }
 
-      newSubjectId: num(body.newSubjectId),
-      newSubjectCode: str(body.newSubjectCode),
-      newSubjectName: str(body.newSubjectName),
-      newFacultyHrmsId: str(body.newFacultyHrmsId),
-      newFacultyName: str(body.newFacultyName),
+    let lastResult: unknown = null;
+    for (const tSlotId of targetSlotIds) {
+      lastResult = await recordDailyTimetableChange({
+        timetableDate,
+        collegeId,
+        courseId,
+        branchId,
+        batch,
+        semester,
+        sectionName: str(body.section || body.sectionName),
+        academicYear,
+        timingSlotId: tSlotId,
+        slotLabel: str(body.slotLabel),
+        slotTime: str(body.slotTime),
 
-      remarks: str(body.remarks),
-      changeType: body.changeType === "REVERTED_TO_MASTER" ? "REVERTED_TO_MASTER" : "PERIOD_CHANGE",
-      actorUserId: req.authUser?.id,
-      actorName: req.authUser?.name || req.authUser?.username || "Authorized User",
-    });
+        masterSubjectId: num(body.masterSubjectId),
+        masterSubjectCode: str(body.masterSubjectCode),
+        masterSubjectName: str(body.masterSubjectName),
+        masterFacultyHrmsId: str(body.masterFacultyHrmsId),
+        masterFacultyName: str(body.masterFacultyName),
 
-    res.json(result);
+        newSubjectId: num(body.newSubjectId),
+        newSubjectCode: str(body.newSubjectCode),
+        newSubjectName: str(body.newSubjectName),
+        newFacultyHrmsId: str(body.newFacultyHrmsId),
+        newFacultyName: str(body.newFacultyName),
+
+        remarks: str(body.remarks),
+        changeType: body.changeType === "REVERTED_TO_MASTER" ? "REVERTED_TO_MASTER" : "PERIOD_CHANGE",
+        actorUserId: req.authUser?.id,
+        actorName: req.authUser?.name || req.authUser?.username || "Authorized User",
+      });
+    }
+
+    res.json(lastResult ?? { success: true });
   } catch (error) {
     sendAuthzError(res, error, next);
   }
