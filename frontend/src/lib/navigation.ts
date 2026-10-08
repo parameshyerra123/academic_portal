@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   UserCog,
   Clock3,
+  ArrowLeftRight,
 } from "lucide-react";
 
 export type NavItem = {
@@ -147,6 +148,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/reports?tab=department-timetables",
         icon: CalendarDays,
         permissions: ["timetable.view", "reports.view"],
+      },
+      {
+        label: "Master vs Changed Timetable",
+        href: "/reports?tab=master-vs-changed",
+        icon: ArrowLeftRight,
+        permissions: ["today_timetable.view", "timetable.view", "reports.view"],
       },
       {
         label: "Staff Timetable Reports",

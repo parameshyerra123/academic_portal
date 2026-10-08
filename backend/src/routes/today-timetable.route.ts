@@ -10,6 +10,7 @@ import {
   getAllBatchesDailyTimetableData,
   listDailyTimetableActivities,
   recordDailyTimetableChange,
+  getMasterVsChangedTimetableReport,
 } from "../services/today-timetable.service.js";
 
 export const todayTimetableRouter = Router();
@@ -239,3 +240,36 @@ todayTimetableRouter.get("/activities", requirePermission("today_timetable.view"
     sendAuthzError(res, error, next);
   }
 });
+
+// GET /api/today-timetable/master-vs-changed-report
+todayTimetableRouter.get(
+  "/master-vs-changed-report",
+  requirePermission("today_timetable.view", "timetable.view"),
+  async (req: AuthedRequest, res, next) => {
+    try {
+      const scoped = scopedFilters(req, {
+        collegeId: num(req.query.collegeId),
+        branchId: num(req.query.branchId),
+      });
+
+      const report = await getMasterVsChangedTimetableReport({
+        academicYear: str(req.query.academicYear),
+        collegeId: scoped.collegeId,
+        courseId: num(req.query.courseId),
+        branchId: scoped.branchId,
+        batch: str(req.query.batch),
+        semester: num(req.query.semester),
+        sectionName: str(req.query.section),
+        startDate: str(req.query.startDate),
+        endDate: str(req.query.endDate),
+        staffHrmsId: str(req.query.staffHrmsId),
+        subjectCode: str(req.query.subjectCode),
+        limit: num(req.query.limit) || 150,
+      });
+
+      res.json(report);
+    } catch (error) {
+      sendAuthzError(res, error, next);
+    }
+  },
+);
