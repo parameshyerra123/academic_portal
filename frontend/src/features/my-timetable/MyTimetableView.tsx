@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { TimetableDaySection } from "./TimetableDaySection";
 import { TimetableSummary } from "./TimetableSummary";
@@ -22,6 +21,7 @@ import {
   getWeekDates,
   hasActiveAcademicFilters,
   linkedAccountMessage,
+  startOfWeekMonday,
   WEEK_DAY_CODES,
 } from "./utils";
 
@@ -129,7 +129,6 @@ export function MyTimetableView() {
       <PageHeader
         title="My Timetable"
         description={PAGE_DESCRIPTION}
-        actions={<StatusBadge status="Published" />}
       />
 
       <div className="mb-4">
@@ -138,6 +137,12 @@ export function MyTimetableView() {
           onPrevious={() => setWeekOffset((value) => value - 1)}
           onNext={() => setWeekOffset((value) => value + 1)}
           onToday={() => setWeekOffset(0)}
+          onDateSelect={(selectedDate) => {
+            const currentMonday = startOfWeekMonday(new Date(), 0);
+            const targetMonday = startOfWeekMonday(selectedDate, 0);
+            const diffDays = Math.round((targetMonday.getTime() - currentMonday.getTime()) / (1000 * 60 * 60 * 24));
+            setWeekOffset(Math.round(diffDays / 7));
+          }}
           isCurrentWeek={isCurrentWeek}
         />
       </div>

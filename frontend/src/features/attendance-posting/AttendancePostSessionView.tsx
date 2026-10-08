@@ -313,17 +313,25 @@ export function AttendancePostSessionView() {
         />
 
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <StatusBadge status={payload.posted ? "Posted" : "Pending"} />
-            {payload.session.sections && payload.session.sections.length > 1 ? (
-              <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Combined ({payload.session.sections.length} Sections)
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 min-w-0">
+            {/* Mobile-only concise subject and time info */}
+            <div className="sm:hidden font-bold text-navy-900 text-xs flex items-center gap-1.5 truncate">
+              <span className="truncate">{payload.session.subjectName ?? "Class session"}</span>
+              <span className="text-slate-400 font-normal">|</span>
+              <span className="whitespace-nowrap text-slate-600 font-medium">{payload.session.time}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={payload.posted ? "Posted" : "Pending"} />
+              {payload.session.sections && payload.session.sections.length > 1 ? (
+                <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Combined ({payload.session.sections.length} Sections)
+                </span>
+              ) : null}
+              <span className="text-xs text-slate-500 truncate max-w-[140px] sm:max-w-none">
+                {payload.session.facultyName ?? "Faculty unassigned"}
+                {payload.session.roomLabel ? ` • ${payload.session.roomLabel}` : ""}
               </span>
-            ) : null}
-            <span className="text-xs text-slate-500 truncate max-w-[140px] sm:max-w-none">
-              {payload.session.facultyName ?? "Faculty unassigned"}
-              {payload.session.roomLabel ? ` • ${payload.session.roomLabel}` : ""}
-            </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-1 text-xs font-medium bg-slate-100/80 p-1 rounded-lg">

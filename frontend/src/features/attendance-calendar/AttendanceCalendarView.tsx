@@ -402,7 +402,7 @@ export function AttendanceCalendarView() {
 
   return (
     <div>
-      <div className="mb-5 flex items-start gap-3">
+      <div className="hidden print:flex mb-5 items-start gap-3">
         <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-lg bg-sky-50 text-info">
           <CalendarDays className="h-5 w-5" />
         </div>

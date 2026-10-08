@@ -7,6 +7,7 @@ type Props = {
   lab: number;
 };
 
+
 export function TimetableSummary({
   classesToday,
   periodsThisWeek,
@@ -14,11 +15,11 @@ export function TimetableSummary({
   lab,
 }: Props) {
   return (
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <StatCard label="Today's classes" value={classesToday} tone="info" />
-      <StatCard label="Periods this week" value={periodsThisWeek} />
-      <StatCard label="Theory classes" value={theory} />
-      <StatCard label="Lab classes" value={lab} />
+    <div className="grid grid-cols-4 gap-1.5 sm:gap-3 xl:grid-cols-4">
+      <StatCard compact label="Today" value={classesToday} tone="info" hint="Classes" />
+      <StatCard compact label="Weekly" value={periodsThisWeek} hint="Periods" />
+      <StatCard compact label="Theory" value={theory} hint="Classes" />
+      <StatCard compact label="Lab" value={lab} hint="Classes" />
     </div>
   );
 }

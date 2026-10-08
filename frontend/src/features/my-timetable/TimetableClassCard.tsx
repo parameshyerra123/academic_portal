@@ -15,48 +15,45 @@ export function TimetableClassCard({ period, compact = false }: Props) {
 
   return (
     <article
-      className="rounded-lg border border-border bg-card p-3 shadow-sm"
+      className="rounded-xl border border-border/80 bg-white p-2.5 sm:p-3 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between"
       aria-label={`${subject}, ${formatTime12h(period.startTime)} to ${formatTime12h(period.endTime)}`}
     >
-      <h4
-        className={cn(
-          "break-words font-semibold leading-snug text-navy-900",
-          compact ? "text-sm" : "text-base",
-        )}
-      >
-        {subject}
-      </h4>
+      <div>
+        <div className="flex items-start justify-between gap-1 mb-1">
+          <span
+            className={cn(
+              "inline-flex rounded px-1.5 py-0.2 text-[9px] font-extrabold uppercase tracking-wide",
+              isLab ? "bg-purple-50 text-purple-700 border border-purple-200" : "bg-brand-50 text-brand-700 border border-brand-200",
+            )}
+          >
+            {entryLabel}
+          </span>
+          <span className="text-[10px] font-medium text-slate-500">
+            {formatTime12h(period.startTime)} – {formatTime12h(period.endTime)}
+          </span>
+        </div>
 
-      <p className="mt-1.5 text-xs font-medium text-slate-600">
-        {formatTime12h(period.startTime)} – {formatTime12h(period.endTime)}
-        {period.slotLabel ? (
-          <span className="font-normal text-slate-400"> • {period.slotLabel}</span>
-        ) : null}
-      </p>
-
-      {contextLine ? (
-        <p className="mt-2 break-words text-xs text-slate-600">{contextLine}</p>
-      ) : null}
-
-      {period.collegeName ? (
-        <p className="mt-1 break-words text-xs text-slate-500">{period.collegeName}</p>
-      ) : null}
-
-      {period.roomLabel ? (
-        <p className="mt-2 break-words text-xs text-slate-500">
-          Room: <span className="font-medium text-slate-600">{period.roomLabel}</span>
-        </p>
-      ) : null}
-
-      <div className="mt-3">
-        <span
+        <h4
           className={cn(
-            "inline-flex rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            isLab ? "bg-teal-50 text-teal-700" : "bg-brand-50 text-brand-700",
+            "break-words font-bold leading-snug text-navy-900",
+            compact ? "text-xs" : "text-sm",
           )}
         >
-          {entryLabel}
-        </span>
+          {subject}
+        </h4>
+
+        {contextLine ? (
+          <p className="mt-1 break-words text-[11px] font-medium text-slate-600">{contextLine}</p>
+        ) : null}
+
+        {period.roomLabel ? (
+          <p className="mt-1 break-words text-[10px] text-slate-500">
+            Room: <span className="font-semibold text-slate-700">{period.roomLabel}</span>
+            {period.slotLabel ? ` • ${period.slotLabel}` : ""}
+          </p>
+        ) : period.slotLabel ? (
+          <p className="mt-1 text-[10px] text-slate-400">{period.slotLabel}</p>
+        ) : null}
       </div>
     </article>
   );

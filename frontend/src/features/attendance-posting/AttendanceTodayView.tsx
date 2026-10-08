@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft,
@@ -169,11 +169,30 @@ function getWeekInfo(weekOffset: number) {
   return { days, rangeLabel, mondayIso: start.dateIso };
 }
 
+function getWeekOffsetForDate(targetIso: string): number {
+  const [ty, tm, td] = targetIso.split("-").map(Number);
+  const target = new Date(ty, tm - 1, td);
+  const tDay = target.getDay();
+  const tDiff = tDay === 0 ? -6 : 1 - tDay;
+  const targetMonday = new Date(ty, tm - 1, td + tDiff);
+  targetMonday.setHours(0, 0, 0, 0);
+
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+  currentMonday.setHours(0, 0, 0, 0);
+
+  const diffMs = targetMonday.getTime() - currentMonday.getTime();
+  return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
 export function AttendanceTodayView() {
   const { authorization } = useAuth();
   const isSuperAdmin = isSuperAdminUser(authorization);
   const teachingStaffOnly = isTeachingStaffOnly(authorization);
 
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [date, setDate] = useState(todayIso);
   const [viewScope, setViewScope] = useState<"mine" | "all">("mine");
@@ -254,6 +273,12 @@ export function AttendanceTodayView() {
   const handleToday = () => {
     setWeekOffset(0);
     setDate(todayIso());
+  };
+
+  const handleDateSelect = (selectedDateIso: string) => {
+    setDate(selectedDateIso);
+    const offset = getWeekOffsetForDate(selectedDateIso);
+    setWeekOffset(offset);
   };
 
   const selectedDayInfo = useMemo(() => {
@@ -340,21 +365,23 @@ export function AttendanceTodayView() {
               : "Post attendance for your assigned class slots or oversee department session attendance."
         }
         actions={
-          <label className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span>Jump to Date</span>
-            <input
-              type="date"
-              value={date}
-              max={todayIso()}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val && val <= todayIso()) {
-                  setDate(val);
-                }
-              }}
-              className="h-8 rounded-md border border-border bg-white px-2 text-xs outline-none focus:border-navy-800"
-            />
-          </label>
+          isSuperAdmin ? (
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span>Date</span>
+              <input
+                type="date"
+                value={date}
+                max={todayIso()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val && val <= todayIso()) {
+                    handleDateSelect(val);
+                  }
+                }}
+                className="h-8 rounded-md border border-border bg-white px-2 text-xs outline-none focus:border-navy-800"
+              />
+            </label>
+          ) : undefined
         }
       />
 
@@ -505,20 +532,63 @@ export function AttendanceTodayView() {
         /* ACADEMIC POSTING VIEW (Staff, HOD, Vice Principal, Principal) */
         <>
           {/* Week Navigation Header */}
-          <nav className="flex items-center justify-between gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 shadow-sm text-xs sm:px-4 sm:py-3">
-            <div className="flex items-center gap-1">
-              <Button
+          <nav className="flex items-center justify-between gap-1.5 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm text-xs sm:px-4 sm:py-2">
+            {/* Prev on the Left */}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={handlePrevWeek}
+              aria-label="Previous week"
+              className="h-7.5 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs shrink-0"
+            >
+              <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Previous week</span>
+              <span className="sm:hidden">Prev</span>
+            </Button>
+
+            {/* Middle: Interactive Calendar Pill [ 5 Oct – 10 Oct, 2026 📅 ] */}
+            <div
+              onClick={() => {
+                try {
+                  dateInputRef.current?.showPicker?.();
+                } catch {}
+              }}
+              className="relative inline-flex items-center justify-center cursor-pointer group"
+            >
+              <button
                 type="button"
-                size="sm"
-                variant="secondary"
-                onClick={handlePrevWeek}
-                aria-label="Previous week"
-                className="h-7 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs"
+                className="group flex items-center justify-center gap-1.5 rounded-lg border border-border/80 bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 shadow-2xs group-hover:border-brand-500 group-hover:bg-brand-50/40 active:scale-95 transition-all text-center font-bold text-navy-900 text-xs sm:text-sm pointer-events-none"
+                title="Tap to open calendar"
               >
-                <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">Previous week</span>
-                <span className="sm:hidden">Prev</span>
-              </Button>
+                <span className="truncate">{weekInfo.rangeLabel}</span>
+                <Calendar className="h-4 w-4 text-emerald-600 shrink-0 group-hover:scale-110 transition-transform" />
+              </button>
+              {/* Native HTML5 date input directly overlaying the entire pill with calendar-picker-input style */}
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={date}
+                max={todayIso()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val && val <= todayIso()) {
+                    handleDateSelect(val);
+                  }
+                }}
+                onClick={(e) => {
+                  try {
+                    (e.target as HTMLInputElement).showPicker?.();
+                  } catch {}
+                }}
+                className="calendar-picker-input absolute inset-0 z-10 h-full w-full opacity-0 cursor-pointer"
+                title="Click to open calendar and pick date"
+                aria-label="Open calendar"
+              />
+            </div>
+
+            {/* Next on the Right */}
+            <div className="flex items-center gap-1 shrink-0">
               <Button
                 type="button"
                 size="sm"
@@ -526,27 +596,19 @@ export function AttendanceTodayView() {
                 onClick={handleNextWeek}
                 disabled={weekOffset >= 0}
                 aria-label="Next week"
-                className="h-7 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs"
+                className="h-7.5 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs shrink-0"
               >
                 <span className="hidden sm:inline">Next week</span>
                 <span className="sm:hidden">Next</span>
                 <ChevronRight className="h-3.5 w-3.5 shrink-0" />
               </Button>
-            </div>
-
-            <div className="flex items-center gap-1 text-center font-semibold text-navy-900 text-xs sm:text-sm truncate">
-              <Calendar className="h-3.5 w-3.5 text-navy-800 shrink-0 hidden sm:inline" />
-              <span className="truncate">{weekInfo.rangeLabel}</span>
-            </div>
-
-            <div className="flex justify-end shrink-0">
+              {/* Quick Today jump on desktop */}
               <Button
                 type="button"
                 size="sm"
                 variant={isCurrentWeek && date === todayIso() ? "primary" : "secondary"}
                 onClick={handleToday}
-                aria-label="Current week"
-                className="h-7 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs"
+                className="hidden sm:inline-flex h-8 px-2.5 text-xs font-semibold"
               >
                 Today
               </Button>
@@ -604,177 +666,132 @@ export function AttendanceTodayView() {
             })}
           </div>
 
-          {/* Selected Day Header & Summary Statistics */}
-          <div className="flex flex-col gap-1 border-b border-border pb-1.5 pt-0.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-navy-800 shrink-0" />
-              <h2 className="text-xs sm:text-base font-bold text-navy-900 flex items-center gap-1.5 truncate">
-                <span>
-                  {selectedDayInfo.fullLabel}, {selectedDayInfo.dayNum} {selectedDayInfo.monthShort}
-                </span>
-                {selectedDayInfo.isToday ? (
-                  <span className="rounded bg-navy-100 px-1.5 py-0.2 text-[9px] sm:text-xs font-semibold text-navy-800 shrink-0">
-                    Today
-                  </span>
-                ) : null}
-              </h2>
+          {/* Row: Search on Left & Today/Selected Date on Right */}
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            {/* Quick Search on Left side */}
+            <div className="relative flex-1 min-w-0 max-w-[210px] sm:max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter subject, section…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-7 sm:h-8 w-full rounded-lg border border-border bg-white pl-8 pr-2 text-xs text-navy-900 outline-none focus:border-navy-800 shadow-2xs"
+              />
             </div>
 
-            <div className="flex items-center gap-3 text-[10px] sm:text-xs font-medium text-slate-600">
-              <div>
-                {teachingStaffOnly ? "My Assigned Periods: " : "Total Scheduled: "}
-                <span className="font-bold text-navy-900">
-                  {displayedScopeSessions.length}
+            {/* Today / Selected Date on Right side */}
+            <div className="flex items-center gap-1.5 shrink-0 text-right">
+              <Clock className="h-3.5 w-3.5 text-navy-800 shrink-0 hidden xs:inline" />
+              <span className="text-xs sm:text-sm font-bold text-navy-900 truncate">
+                {selectedDayInfo.fullLabel}, {selectedDayInfo.dayNum} {selectedDayInfo.monthShort}
+              </span>
+              {selectedDayInfo.isToday ? (
+                <span className="rounded bg-navy-100 px-1.5 py-0.2 text-[9px] sm:text-xs font-semibold text-navy-800 shrink-0">
+                  Today
                 </span>
-              </div>
-              <div>
-                Pending: <span className="font-bold text-warning">{totalPending}</span>
-              </div>
-              <div>
-                Posted: <span className="font-bold text-success">{totalPosted}</span>
-              </div>
+              ) : null}
             </div>
           </div>
 
-          {/* Filter Bar: Scope, Branch, Status, Search (Useful for leadership and multi-class faculty) */}
-          {allSessions.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-white p-2 text-xs shadow-xs">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {/* Scope Switcher for Leadership / HODs: My Attendance vs All Department Slots */}
-                {teachingStaffOnly ? (
-                  <div className="flex items-center gap-1.5 border-r border-border pr-2.5 mr-1">
-                    <span className="rounded bg-navy-50 border border-navy-200 px-2.5 py-1 text-[11px] font-bold text-navy-800 flex items-center gap-1.5 shadow-2xs">
-                      <Clock className="h-3 w-3 text-navy-700" />
-                      <span>My Assigned Periods: {displayedScopeSessions.length}</span>
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 border-r border-border pr-2 mr-1">
-                    <span className="text-[11px] text-slate-500 font-semibold">Scope:</span>
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("mine")}
-                      className={`rounded px-2.5 py-1 text-[11px] font-bold transition-all flex items-center gap-1.5 ${
-                        viewScope === "mine"
-                          ? "bg-navy-800 text-white shadow-xs"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      <span>My Attendance</span>
-                      <span
-                        className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-                          viewScope === "mine"
-                            ? "bg-white/20 text-white font-extrabold"
-                            : "bg-slate-200 text-slate-700 font-semibold"
-                        }`}
-                      >
-                        {mySessionsCount}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("all")}
-                      className={`rounded px-2.5 py-1 text-[11px] font-bold transition-all flex items-center gap-1.5 ${
-                        viewScope === "all"
-                          ? "bg-navy-800 text-white shadow-xs"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      <span>All Department Slots</span>
-                      <span
-                        className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-                          viewScope === "all"
-                            ? "bg-white/20 text-white font-extrabold"
-                            : "bg-slate-200 text-slate-700 font-semibold"
-                        }`}
-                      >
-                        {allSessions.length}
-                      </span>
-                    </button>
-                  </div>
-                )}
+          {/* 3 Analytics / Filter Cards (One-touch filter for All, Pending, Posted) */}
+          <div className="grid grid-cols-3 gap-1.5 text-[10px] sm:text-xs">
+            <button
+              type="button"
+              onClick={() => setStatusFilter("all")}
+              className={`rounded-lg border px-2 py-1.5 text-center transition-all ${
+                statusFilter === "all"
+                  ? "border-navy-800 bg-navy-50/90 text-navy-900 shadow-2xs ring-1 ring-navy-800/20"
+                  : "border-border/80 bg-slate-50/80 text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              <span className="text-slate-500 block leading-tight">{teachingStaffOnly ? "My Periods:" : "Scheduled:"}</span>
+              <span className="font-extrabold text-navy-900 text-xs sm:text-sm">{displayedScopeSessions.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter("pending")}
+              className={`rounded-lg border px-2 py-1.5 text-center transition-all ${
+                statusFilter === "pending"
+                  ? "border-amber-500 bg-amber-50 text-amber-900 shadow-2xs ring-1 ring-amber-500/30"
+                  : "border-amber-200/80 bg-amber-50/40 text-amber-800 hover:bg-amber-100/60"
+              }`}
+            >
+              <span className="text-amber-700 block leading-tight">Pending:</span>
+              <span className="font-extrabold text-amber-700 text-xs sm:text-sm">{totalPending}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter("posted")}
+              className={`rounded-lg border px-2 py-1.5 text-center transition-all ${
+                statusFilter === "posted"
+                  ? "border-emerald-600 bg-emerald-50 text-emerald-900 shadow-2xs ring-1 ring-emerald-600/30"
+                  : "border-emerald-200/80 bg-emerald-50/40 text-emerald-800 hover:bg-emerald-100/60"
+              }`}
+            >
+              <span className="text-emerald-700 block leading-tight">Posted:</span>
+              <span className="font-extrabold text-emerald-700 text-xs sm:text-sm">{totalPosted}</span>
+            </button>
+          </div>
 
-                {/* Branch options filter if more than 1 branch */}
-                {branchOptions.length > 1 ? (
-                  <div className="flex items-center gap-1 border-r border-border pr-2 mr-1">
-                    <span className="text-[11px] text-slate-500 font-semibold">Branch:</span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBranchId("all")}
-                      className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
-                        selectedBranchId === "all"
-                          ? "bg-navy-800 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      All ({displayedScopeSessions.length})
-                    </button>
-                    {branchOptions.map((b) => (
-                      <button
-                        key={b.id}
-                        type="button"
-                        onClick={() => setSelectedBranchId(String(b.id))}
-                        className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
-                          selectedBranchId === String(b.id)
-                            ? "bg-navy-800 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
-                      >
-                        {b.name}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {/* Status Filter Pills */}
-                <div className="flex items-center gap-1">
+          {/* Secondary Scope / Branch filter for Leadership (when not teaching staff only) */}
+          {!teachingStaffOnly && (allSessions.length > 0 || branchOptions.length > 1) ? (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-slate-500 font-semibold">Scope:</span>
+                <button
+                  type="button"
+                  onClick={() => setViewScope("mine")}
+                  className={`rounded px-2 py-0.5 text-[11px] font-bold transition-all ${
+                    viewScope === "mine"
+                      ? "bg-navy-800 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  My Attendance ({mySessionsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewScope("all")}
+                  className={`rounded px-2 py-0.5 text-[11px] font-bold transition-all ${
+                    viewScope === "all"
+                      ? "bg-navy-800 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  All Department Slots ({allSessions.length})
+                </button>
+              </div>
+              {branchOptions.length > 1 ? (
+                <div className="flex items-center gap-1 ml-auto">
+                  <span className="text-[11px] text-slate-500 font-semibold">Branch:</span>
                   <button
                     type="button"
-                    onClick={() => setStatusFilter("all")}
+                    onClick={() => setSelectedBranchId("all")}
                     className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
-                      statusFilter === "all"
-                        ? "bg-slate-800 text-white"
+                      selectedBranchId === "all"
+                        ? "bg-navy-800 text-white"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
                     All ({displayedScopeSessions.length})
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter("pending")}
-                    className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
-                      statusFilter === "pending"
-                        ? "bg-amber-600 text-white"
-                        : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
-                    }`}
-                  >
-                    Pending ({totalPending})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter("posted")}
-                    className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
-                      statusFilter === "posted"
-                        ? "bg-emerald-600 text-white"
-                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                    }`}
-                  >
-                    Posted ({totalPosted})
-                  </button>
+                  {branchOptions.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => setSelectedBranchId(String(b.id))}
+                      className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-all ${
+                        selectedBranchId === String(b.id)
+                          ? "bg-navy-800 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      {b.name}
+                    </button>
+                  ))}
                 </div>
-              </div>
-
-              {/* Quick Search */}
-              <div className="relative min-w-[180px] sm:min-w-[220px]">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filter subject, faculty, section…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-7 w-full rounded-md border border-border bg-slate-50/70 pl-7 pr-2 text-xs outline-none focus:border-navy-800 focus:bg-white"
-                />
-              </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -832,40 +849,44 @@ export function AttendanceTodayView() {
             </Card>
           ) : null}
 
-          {/* Sessions Grid */}
+          {/* Sessions Grid (Compact Small Cards on Mobile) */}
           <div className="grid gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredSessions.map((item) => (
               <Card
                 key={item.id}
-                className={`flex flex-col justify-between border-l-4 p-2.5 sm:p-4 hover:shadow-md transition-shadow ${
-                  item.isMySession ? "border-l-indigo-600 bg-white" : "border-l-navy-800"
+                className={`flex flex-col justify-between border-l-4 p-2.5 sm:p-3.5 shadow-2xs hover:shadow-xs transition-all ${
+                  item.posted
+                    ? "border-l-emerald-500 bg-white"
+                    : item.isMySession
+                      ? "border-l-indigo-600 bg-white"
+                      : "border-l-amber-500 bg-white"
                 }`}
               >
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-1.5 border-b border-border/50 pb-1.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {item.slotLabel ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold text-navy-900 bg-navy-100/90 border border-navy-200 px-2 py-0.5 rounded shadow-2xs">
+                        <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold text-navy-900 bg-navy-100/90 border border-navy-200 px-1.5 py-0.2 rounded shadow-2xs">
                           {item.slotLabel}
                         </span>
                       ) : null}
-                      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">
                         <Clock className="h-3 w-3 text-slate-500" />
                         {item.startTime ?? "—"}{item.endTime ? ` – ${item.endTime}` : ""}
                       </span>
                       {item.isMySession && !teachingStaffOnly ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">
                           ★ My Slot
                         </span>
                       ) : null}
                       {item.sections && item.sections.length > 1 ? (
-                        <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
                           Combined ({item.sections.length} Sec)
                         </span>
                       ) : null}
                       {item.subjectTypeSnapshot ? (
                         <span
-                          className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          className={`inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded ${
                             item.subjectTypeSnapshot.toLowerCase() === "lab"
                               ? "bg-purple-50 text-purple-700 border border-purple-200"
                               : "bg-sky-50 text-sky-700 border border-sky-200"
@@ -875,18 +896,26 @@ export function AttendanceTodayView() {
                         </span>
                       ) : null}
                     </div>
-                    <StatusBadge status={item.posted ? "Posted" : "Pending"} />
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wide shrink-0 ${
+                        item.posted
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {item.posted ? "Posted" : "Pending"}
+                    </span>
                   </div>
 
-                  <h3 className="text-xs sm:text-base font-bold text-navy-900 leading-snug">
+                  <h3 className="text-xs sm:text-sm font-bold text-navy-900 leading-snug line-clamp-1">
                     {item.subjectName ?? "Untitled subject"}
                   </h3>
-                  <p className="text-[10px] sm:text-xs font-medium text-slate-600 mt-0.5">
+                  <p className="text-[10.5px] sm:text-xs font-medium text-slate-600 mt-0.5 truncate">
                     {item.subjectCode ?? "—"}
                     {item.section ? ` • ${formatSectionDisplay(item.section, item.sections)}` : ""}
                     {item.branchName ? ` • ${item.branchName}` : ""}
                   </p>
-                  <p className="mt-1 text-[10px] sm:text-xs text-slate-500">
+                  <p className="mt-1 text-[10px] sm:text-xs text-slate-500 truncate">
                     <span className="font-semibold text-slate-700">Faculty:</span>{" "}
                     {item.facultyName ? (
                       item.isMySession ? (
@@ -903,17 +932,17 @@ export function AttendanceTodayView() {
                   </p>
 
                   {item.posted ? (
-                    <div className="mt-2 rounded bg-emerald-50 p-1.5 text-[10px] sm:text-xs text-emerald-800 font-medium flex items-center justify-between">
-                      <span>Present: <strong className="text-emerald-900">{item.presentCount}</strong></span>
+                    <div className="mt-2 rounded-lg bg-emerald-50/80 p-1.5 text-[10px] sm:text-xs text-emerald-900 font-medium flex items-center justify-between border border-emerald-100">
+                      <span>Present: <strong className="text-emerald-700">{item.presentCount}</strong></span>
                       <span>Absent: <strong className="text-rose-700">{item.absentCount}</strong></span>
                     </div>
                   ) : null}
                 </div>
 
-                <div className="mt-3">
-                  <Link href={`/attendance-posting/${item.id}`}>
+                <div className="mt-2.5 pt-0.5">
+                  <Link href={`/attendance-posting/${item.id}`} className="block w-full">
                     <Button
-                      className="w-full h-7 sm:h-9 text-xs font-semibold"
+                      className="w-full h-7.5 sm:h-8 text-xs font-semibold active:scale-[0.99] transition-transform"
                       variant={item.posted ? "secondary" : "primary"}
                     >
                       {item.posted

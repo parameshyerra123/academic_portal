@@ -6,6 +6,7 @@ import { AcademicProvider } from "@/components/layout/AcademicProvider";
 import { AcademicFilterBar } from "@/components/layout/AcademicFilterBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopHeader } from "@/components/layout/TopHeader";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 
 const COLLAPSE_KEY = "ap.sidebar.collapsed";
 
@@ -56,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="print:hidden">
             <TopHeader onMenuClick={() => setMobileOpen(true)} />
           </div>
-          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-5 print:block print:overflow-visible print:p-0">
+          <main className="min-h-0 flex-1 overflow-y-auto px-3 py-3.5 pb-24 sm:px-5 sm:py-5 sm:pb-[max(1rem,env(safe-area-inset-bottom))] print:block print:overflow-visible print:p-0">
             {!isTimetablePage ? (
               <div className="print:hidden">
                 <AcademicFilterBar title="Page filters" />
@@ -64,6 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : null}
             {children}
           </main>
+          <MobileBottomNav onMenuClick={() => setMobileOpen(true)} />
         </div>
       </div>
     </AcademicProvider>

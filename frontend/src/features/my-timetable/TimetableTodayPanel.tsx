@@ -80,14 +80,14 @@ export function TimetableTodayPanel({ todayDay, classesToday, todayCode, now }: 
   );
 
   return (
-    <Card className="mb-4 border-brand-100 bg-brand-50/30">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="mb-3 sm:mb-4 border-brand-200/70 bg-brand-50/25 p-3 sm:p-4 rounded-xl shadow-2xs">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Today</p>
-          <h2 className="text-base font-semibold text-navy-900">{formatLongDate(now)}</h2>
-          <p className="mt-1 text-sm text-slate-600">{todayStatusMessage(status)}</p>
+          <h2 className="text-sm sm:text-base font-bold text-navy-900">{formatLongDate(now)}</h2>
+          <p className="mt-0.5 text-xs sm:text-sm text-slate-600">{todayStatusMessage(status)}</p>
           {classesToday > 0 ? (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500">
               {classesToday} scheduled {classesToday === 1 ? "class" : "classes"}
             </p>
           ) : null}
