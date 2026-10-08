@@ -8,11 +8,11 @@ cd "$APP_DIR"
 
 echo "==> Backend deps"
 cd "$APP_DIR/backend"
-npm install --no-audit --no-fund
+npm install --legacy-peer-deps --no-audit --no-fund
 
 echo "==> Frontend deps + production build"
 cd "$APP_DIR/frontend"
-npm install --no-audit --no-fund
+npm install --legacy-peer-deps --no-audit --no-fund
 npm run build
 
 echo "==> Restart PM2"
