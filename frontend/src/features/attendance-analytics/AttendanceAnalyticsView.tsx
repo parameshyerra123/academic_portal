@@ -755,7 +755,7 @@ export function AttendanceAnalyticsView({ embedded = false }: { embedded?: boole
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
         <div className="flex flex-wrap items-center gap-3">
           {!embedded ? (
-            <h1 className="text-base font-bold text-navy-900 tracking-tight flex items-center gap-2">
+            <h1 className="hidden print:flex text-base font-bold text-navy-900 tracking-tight items-center gap-2">
               <span>Attendance Analytics</span>
             </h1>
           ) : null}

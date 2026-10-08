@@ -2063,7 +2063,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
     <div>
       {!embedded ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="hidden print:block">
             <h1 className="text-[28px] font-bold leading-tight text-navy-900">
               Master Timetable
             </h1>

@@ -2294,8 +2294,8 @@ export function TodayTimetableView() {
   return (
     <div>
       {/* Top Header */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
+      <div className="mb-2 sm:mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="hidden print:block">
           <h1 className="text-[28px] font-bold leading-tight text-navy-900">Today Timetable</h1>
           <p className="mt-1 text-sm text-slate-500 max-w-xl">
             Live schedule for any date compared against the Master Timetable.{" "}
@@ -2306,7 +2306,7 @@ export function TodayTimetableView() {
         </div>
 
         {/* Top Right "Activity" Button */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
           <Button
             id="today-timetable-activity-button"
             onClick={() => setActivityModalOpen(true)}

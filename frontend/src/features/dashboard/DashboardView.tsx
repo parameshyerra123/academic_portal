@@ -88,6 +88,13 @@ import {
   BookOpen,
   Filter,
   Sparkles,
+  Calendar,
+  CalendarDays,
+  FileText,
+  Award,
+  UserCog,
+  ArrowRight,
+  ClipboardCheck,
 } from "lucide-react";
 
 export function DashboardView() {
@@ -364,113 +371,155 @@ export function DashboardView() {
   }
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 sm:space-y-6 pb-12">
       {/* SECTION A — HEADER */}
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900 tracking-tight">
-          {greeting}, {user?.name || "User"} 👋
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-        {error ? (
-          <p className="mt-2 text-sm text-red-600">{error}</p>
-        ) : null}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-navy-900 tracking-tight">
+            {greeting}, {user?.name || "Faculty"} 👋
+          </h1>
+          <p className="mt-0.5 text-xs sm:text-sm text-slate-500">{subtitle}</p>
+          {error ? (
+            <p className="mt-1.5 text-xs text-red-600 font-medium">{error}</p>
+          ) : null}
+        </div>
       </div>
 
-      {/* SECTION C — KPI SUMMARY CARDS */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {teachingStaffOnly ? (
-          <>
-            {hasAnyPermission("my_timetable.view") ? (
-              <>
+      {/* SECTION C — KPI SUMMARY CARDS (COMPACT 1 OR 2 LINES FOR MOBILE) */}
+      {teachingStaffOnly ? (
+        <div className="space-y-2.5 sm:space-y-3">
+          {/* LINE 1 — TEACHING LOAD ANALYTICS (Single line on mobile with 4 small cards) */}
+          {hasAnyPermission("my_timetable.view") ? (
+            <div>
+              <div className="mb-1 flex items-center justify-between px-0.5">
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <BookOpen className="h-3 w-3 text-brand-600" />
+                  Teaching Schedule & Load
+                </span>
+                <Link
+                  href="/my-timetable"
+                  className="text-[10px] sm:text-xs font-medium text-brand-600 hover:underline flex items-center gap-0.5"
+                >
+                  Timetable &rarr;
+                </Link>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
                 <StatCard
-                  label="Classes Today"
+                  compact
+                  label="Today"
                   value={myTimetableSummary?.classesToday ?? myClassesToday?.scheduled ?? "—"}
-                  hint="From your published timetable"
+                  hint="Classes"
                   tone="info"
                 />
                 <StatCard
-                  label="Periods This Week"
+                  compact
+                  label="Load"
                   value={myTimetableSummary?.periodsThisWeek ?? "—"}
-                  hint="Assigned teaching load"
+                  hint="Periods/wk"
                   tone="info"
                 />
                 <StatCard
+                  compact
                   label="Subjects"
                   value={myTimetableSummary?.subjects ?? "—"}
-                  hint="Assigned subjects"
+                  hint="Assigned"
                   tone="info"
                 />
                 <StatCard
+                  compact
                   label="Sections"
                   value={myTimetableSummary?.sections ?? "—"}
-                  hint="Assigned sections"
+                  hint="Assigned"
                   tone="info"
                 />
-              </>
-            ) : null}
-            {canAttendance ? (
-              <>
+              </div>
+            </div>
+          ) : null}
+
+          {/* LINE 2 — TODAY'S ATTENDANCE PROGRESS (Single line on mobile with small cards) */}
+          {canAttendance ? (
+            <div>
+              <div className="mb-1 flex items-center justify-between px-0.5">
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                  Today&apos;s Attendance Posting
+                </span>
+                <Link
+                  href="/attendance-posting"
+                  className="text-[10px] sm:text-xs font-medium text-brand-600 hover:underline flex items-center gap-0.5"
+                >
+                  Post Attendance &rarr;
+                </Link>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
                 <StatCard
-                  label="Today's Sessions"
+                  compact
+                  label="Scheduled"
                   value={myClassesToday?.scheduled ?? "—"}
-                  hint="Your assigned classes"
+                  hint="Assigned classes"
                 />
                 <StatCard
+                  compact
                   label="Posted"
                   value={myClassesToday?.posted ?? "—"}
                   tone="success"
-                  hint="Attendance taken"
+                  hint="Submitted"
                 />
                 <StatCard
+                  compact
                   label="Pending"
                   value={myClassesToday?.pending ?? "—"}
-                  tone="warning"
-                  hint="Awaiting submission"
+                  tone={myClassesToday?.pending ? "warning" : "default"}
+                  hint={myClassesToday?.pending ? "Awaiting submission" : "All completed"}
                 />
-              </>
-            ) : null}
-          </>
-        ) : (
-          <>
-        {canStudents ? (
-          <StatCard
-            label="Active Students"
-            value={summary?.activeStudents.toLocaleString() || "—"}
-            hint="Enrolled in active programs"
-            tone="info"
-          />
-        ) : null}
-        {canFaculty ? (
-          <StatCard
-            label="Total Faculty"
-            value={summary?.facultyCount.toLocaleString() || "—"}
-            hint="Active HRMS records"
-            tone="info"
-          />
-        ) : null}
-        {canAttendance ? (
-          <StatCard
-            label="Average Attendance"
-            value={attendance ? `${attendance.overallAttendance}%` : summary ? `${summary.averageAttendance}%` : "—"}
-            hint="Last 90 days"
-            tone={
-              (attendance?.overallAttendance || summary?.averageAttendance || 0) >= 75
-                ? "success"
-                : "critical"
-            }
-          />
-        ) : null}
-        {canTimetable ? (
-          <StatCard
-            label="Active Sections"
-            value={summary?.sectionCount.toLocaleString() || "—"}
-            hint="Configured curriculum branches"
-            tone="info"
-          />
-        ) : null}
-          </>
-        )}
-      </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:gap-4">
+          {canStudents ? (
+            <StatCard
+              compact
+              label="Active Students"
+              value={summary?.activeStudents.toLocaleString() || "—"}
+              hint="Enrolled in active programs"
+              tone="info"
+            />
+          ) : null}
+          {canFaculty ? (
+            <StatCard
+              compact
+              label="Total Faculty"
+              value={summary?.facultyCount.toLocaleString() || "—"}
+              hint="Active HRMS records"
+              tone="info"
+            />
+          ) : null}
+          {canAttendance ? (
+            <StatCard
+              compact
+              label="Avg Attendance"
+              value={attendance ? `${attendance.overallAttendance}%` : summary ? `${summary.averageAttendance}%` : "—"}
+              hint="Last 90 days"
+              tone={
+                (attendance?.overallAttendance || summary?.averageAttendance || 0) >= 75
+                  ? "success"
+                  : "critical"
+              }
+            />
+          ) : null}
+          {canTimetable ? (
+            <StatCard
+              compact
+              label="Active Sections"
+              value={summary?.sectionCount.toLocaleString() || "—"}
+              hint="Configured curriculum"
+              tone="info"
+            />
+          ) : null}
+        </div>
+      )}
 
       {/* DYNAMIC ROLE-BASED ANALYTICS PANELS */}
 
@@ -651,32 +700,32 @@ export function DashboardView() {
         </Card>
       ) : null}
 
-      {/* FACULTY PERSONAL CLASS & STUDENT ATTENDANCE OVERVIEW */}
+      {/* FACULTY PERSONAL CLASS & STUDENT ATTENDANCE OVERVIEW (COMPACT SMALL CARDS) */}
       {teachingStaffOnly && (
-        <Card>
-          <div className="mb-4 pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <Card className="p-3 sm:p-5">
+          <div className="mb-3 sm:mb-4 pb-2.5 sm:pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <h2 className="text-base font-bold text-navy-900 flex items-center gap-2">
-                <GraduationCap className="h-5 w-5 text-brand-600" />
+              <h2 className="text-sm sm:text-base font-bold text-navy-900 flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 text-brand-600" />
                 My Assigned Classes & Student Attendance
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                View all class sections assigned to you, required student counts, and today&apos;s attendance performance.
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                Class sections assigned to you today and live attendance status.
               </p>
             </div>
             <Link href="/attendance-posting">
-              <Button size="sm" variant="secondary">
+              <Button size="sm" variant="secondary" className="h-7 sm:h-8 text-xs font-semibold">
                 Post Attendance
               </Button>
             </Link>
           </div>
 
           {todaySessions.length === 0 ? (
-            <div className="py-6 text-center text-sm text-slate-500">
+            <div className="py-6 text-center text-xs sm:text-sm text-slate-500">
               No class sessions scheduled for you today. View your full timetable under My Timetable.
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
               {todaySessions.map((session) => {
                 const present = session.presentCount ?? 0;
                 const absent = session.absentCount ?? 0;
@@ -684,44 +733,76 @@ export function DashboardView() {
                 const pct = totalEnrolled > 0 ? Math.round((present / totalEnrolled) * 100) : null;
 
                 return (
-                  <div key={session.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-bold text-navy-900 text-sm">{session.subjectName || session.subjectCode}</h3>
-                        <p className="text-xs text-slate-500">{session.section || "Class Section"} · Room {session.roomLabel || "N/A"}</p>
+                  <div
+                    key={session.id}
+                    className={`rounded-xl border bg-white p-2.5 sm:p-3.5 shadow-2xs transition-all hover:shadow-xs flex flex-col justify-between ${
+                      session.posted
+                        ? "border-emerald-200 border-l-4 border-l-emerald-500"
+                        : "border-amber-200 border-l-4 border-l-amber-500"
+                    }`}
+                  >
+                    <div>
+                      {/* Top Bar: Slot + Time & Status */}
+                      <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                          <Clock className="h-3 w-3 text-slate-500 shrink-0" />
+                          <span className="truncate">{session.slotLabel || `${session.startTime} - ${session.endTime}`}</span>
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wide shrink-0 ${
+                            session.posted
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {session.posted ? "Posted" : "Pending"}
+                        </span>
                       </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${session.posted ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                        {session.posted ? "Posted" : "Pending"}
-                      </span>
+
+                      {/* Subject Name & Section */}
+                      <h3 className="font-bold text-navy-900 text-xs sm:text-sm line-clamp-1 leading-snug">
+                        {session.subjectName || session.subjectCode}
+                      </h3>
+                      <p className="text-[10.5px] sm:text-xs text-slate-500 mt-0.5 truncate">
+                        {session.section || "Section"} · Room {session.roomLabel || "N/A"}
+                      </p>
+
+                      {/* Single Line Micro Attendance Analytics */}
+                      <div className="mt-2 rounded-lg bg-slate-50/80 p-1.5 border border-slate-100 text-[10px] sm:text-[11px]">
+                        {session.posted ? (
+                          <div className="flex items-center justify-between text-slate-600">
+                            <span>
+                              Enrolled: <strong className="text-navy-900">{totalEnrolled}</strong>
+                            </span>
+                            <span>
+                              Present: <strong className="text-emerald-700">{present} ({pct}%)</strong>
+                            </span>
+                            <span>
+                              Absent: <strong className="text-rose-600">{absent}</strong>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">
+                              Students: <strong className="text-navy-900">{totalEnrolled > 0 ? totalEnrolled : "Class Roster"}</strong>
+                            </span>
+                            <span className="text-amber-700 font-semibold">
+                              Awaiting Submission
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="rounded-lg bg-slate-50 p-2.5 space-y-1.5 border border-slate-100 text-xs">
-                      <div className="flex justify-between items-center text-slate-600">
-                        <span>Slot & Time:</span>
-                        <span className="font-semibold text-slate-800">{session.slotLabel || `${session.startTime} - ${session.endTime}`}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-slate-600">
-                        <span>Students Required:</span>
-                        <span className="font-bold text-navy-900">{totalEnrolled > 0 ? `${totalEnrolled} Students` : "Enrolled Class"}</span>
-                      </div>
-                      {session.posted && (
-                        <>
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Attended Class:</span>
-                            <span className="font-bold text-emerald-700">{present} Present ({pct}%)</span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Absent Students:</span>
-                            <span className="font-bold text-rose-600">{absent} Absent</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="flex justify-end pt-1">
-                      <Link href={`/attendance-posting/${session.id}`} className="w-full">
-                        <Button size="sm" variant={session.posted ? "secondary" : "primary"} className="w-full text-xs">
-                          {session.posted ? "Edit Attendance" : "Take Attendance"}
+                    {/* Touch Action Button */}
+                    <div className="mt-2.5 pt-0.5">
+                      <Link href={`/attendance-posting/${session.id}`} className="block w-full">
+                        <Button
+                          size="sm"
+                          variant={session.posted ? "secondary" : "primary"}
+                          className="w-full text-xs h-7.5 sm:h-8 font-semibold active:scale-[0.99] transition-transform"
+                        >
+                          {session.posted ? "Review / Edit Attendance" : "Take Attendance"}
                         </Button>
                       </Link>
                     </div>
@@ -746,23 +827,26 @@ export function DashboardView() {
                   <Button variant="secondary" size="sm">View Analytics</Button>
                 </Link>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3 mb-6">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-3 mb-4 sm:mb-6">
                 <StatCard
-                  label="Today's Sessions"
+                  compact
+                  label="Sessions"
                   value={attendance?.today.scheduled || summary?.classesToday.scheduled || 0}
-                  hint="Scheduled classes"
+                  hint="Scheduled"
                 />
                 <StatCard
+                  compact
                   label="Posted"
                   value={attendance?.today.posted || summary?.classesToday.posted || 0}
                   tone="success"
-                  hint="Attendance taken"
+                  hint="Taken"
                 />
                 <StatCard
+                  compact
                   label="Pending"
                   value={attendance?.today.pending || summary?.classesToday.pending || 0}
                   tone="warning"
-                  hint="Awaiting submission"
+                  hint="Awaiting"
                 />
               </div>
 
@@ -791,29 +875,35 @@ export function DashboardView() {
           ) : null}
 
           {canAttendance && teachingStaffOnly ? (
-            <Card>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-base font-semibold text-navy-900">My Attendance Today</h2>
+            <Card className="p-3 sm:p-5">
+              <div className="mb-3 flex items-center justify-between pb-2 border-b border-border">
+                <h2 className="text-xs sm:text-base font-bold text-navy-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  My Attendance Today
+                </h2>
                 <Link href="/attendance-posting">
-                  <Button variant="secondary" size="sm">Post Attendance</Button>
+                  <Button variant="secondary" size="sm" className="h-7 text-xs font-semibold">Post Attendance</Button>
                 </Link>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
                 <StatCard
-                  label="Today's Sessions"
+                  compact
+                  label="Sessions"
                   value={myClassesToday?.scheduled ?? 0}
-                  hint="Your assigned classes"
+                  hint="Assigned classes"
                 />
                 <StatCard
+                  compact
                   label="Posted"
                   value={myClassesToday?.posted ?? 0}
                   tone="success"
                   hint="Attendance taken"
                 />
                 <StatCard
+                  compact
                   label="Pending"
                   value={myClassesToday?.pending ?? 0}
-                  tone="warning"
+                  tone={myClassesToday?.pending ? "warning" : "default"}
                   hint="Awaiting submission"
                 />
               </div>
@@ -821,7 +911,7 @@ export function DashboardView() {
           ) : null}
 
           {/* SECTION E & F — ACADEMIC OPERATIONS & EXAMS */}
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-4 sm:gap-6 sm:grid-cols-2">
             {canTimetable && !teachingStaffOnly ? (
               <Card>
                 <div className="mb-4 flex items-center justify-between">
@@ -848,26 +938,31 @@ export function DashboardView() {
             ) : null}
 
             {hasAnyPermission("my_timetable.view") && teachingStaffOnly ? (
-              <Card>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-navy-900">My Timetable</h2>
+              <Card className="p-3 sm:p-5">
+                <div className="mb-3 flex items-center justify-between pb-2 border-b border-border">
+                  <h2 className="text-xs sm:text-base font-bold text-navy-900 flex items-center gap-1.5">
+                    <CalendarDays className="h-4 w-4 text-brand-600" />
+                    My Timetable
+                  </h2>
                   <Link href="/my-timetable">
-                    <Button variant="secondary" size="sm">View Timetable</Button>
+                    <Button variant="secondary" size="sm" className="h-7 text-xs font-semibold">View Timetable</Button>
                   </Link>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm text-slate-500 mb-1">Periods This Week</p>
-                    <p className="text-2xl font-semibold text-navy-900">
-                      {myTimetableSummary?.periodsThisWeek ?? "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 mb-1">Classes Today</p>
-                    <p className="text-2xl font-semibold text-navy-900">
-                      {myTimetableSummary?.classesToday ?? "—"}
-                    </p>
-                  </div>
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-3">
+                  <StatCard
+                    compact
+                    label="Weekly Load"
+                    value={myTimetableSummary?.periodsThisWeek ?? "—"}
+                    hint="Periods this week"
+                    tone="info"
+                  />
+                  <StatCard
+                    compact
+                    label="Classes Today"
+                    value={myTimetableSummary?.classesToday ?? "—"}
+                    hint="Assigned today"
+                    tone="info"
+                  />
                 </div>
               </Card>
             ) : null}
@@ -990,76 +1085,89 @@ export function DashboardView() {
           )}
 
           {/* SECTION J — QUICK ACTIONS */}
-          <Card>
-            <h2 className="mb-4 text-base font-semibold text-navy-900">Quick Actions</h2>
-            <div className="grid grid-cols-2 gap-2">
+          <Card className="p-3 sm:p-5">
+            <h2 className="mb-3 text-sm sm:text-base font-bold text-navy-900 flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-brand-600" />
+              Quick Actions
+            </h2>
+            <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
               {canAttendance && (
                 <Link href="/attendance-posting">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    Post Attendance
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">Post Attendance</span>
                   </Button>
                 </Link>
               )}
               {canStudents && (
                 <Link href="/students">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    View Students
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <Users className="h-3.5 w-3.5 mr-1.5 text-brand-600 shrink-0" />
+                    <span className="truncate">Students</span>
                   </Button>
                 </Link>
               )}
               {hasAnyPermission("my_timetable.view") && teachingStaffOnly ? (
                 <Link href="/my-timetable">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    My Timetable
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <CalendarDays className="h-3.5 w-3.5 mr-1.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">My Timetable</span>
                   </Button>
                 </Link>
               ) : null}
               {canTimetable && !teachingStaffOnly ? (
                 <Link href="/timetables">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    Manage Timetable
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <Calendar className="h-3.5 w-3.5 mr-1.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">Timetables</span>
                   </Button>
                 </Link>
               ) : null}
               {canFaculty && (
                 <Link href="/faculty-departments">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    View Faculty
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <GraduationCap className="h-3.5 w-3.5 mr-1.5 text-navy-700 shrink-0" />
+                    <span className="truncate">Faculty</span>
                   </Button>
                 </Link>
               )}
               {canExams && (
                 <Link href="/examinations">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    View Exams
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <FileText className="h-3.5 w-3.5 mr-1.5 text-amber-600 shrink-0" />
+                    <span className="truncate">Exams</span>
                   </Button>
                 </Link>
               )}
               {hasAnyPermission("results.view") && (
                 <Link href="/results">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    View Results
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <Award className="h-3.5 w-3.5 mr-1.5 text-purple-600 shrink-0" />
+                    <span className="truncate">Results</span>
                   </Button>
                 </Link>
               )}
               {canRequests && (
                 <Link href="/requests">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    {superAdminUser ? "All Requests" : "My Requests"}
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <FileText className="h-3.5 w-3.5 mr-1.5 text-blue-600 shrink-0" />
+                    <span className="truncate">{superAdminUser ? "All Requests" : "My Requests"}</span>
                   </Button>
                 </Link>
               )}
               {canRequestApprove && (
                 <Link href="/requests/pending">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    Pending Requests
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <ClipboardCheck className="h-3.5 w-3.5 mr-1.5 text-rose-600 shrink-0" />
+                    <span className="truncate">Approvals</span>
                   </Button>
                 </Link>
               )}
               {hasAnyPermission("user_management.view") && (
                 <Link href="/user-management">
-                  <Button variant="secondary" className="w-full justify-start text-sm bg-slate-50 hover:bg-slate-100 border-0">
-                    Manage Users
+                  <Button variant="secondary" className="w-full justify-start text-xs sm:text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200/70 h-9 sm:h-10 px-2.5">
+                    <UserCog className="h-3.5 w-3.5 mr-1.5 text-slate-700 shrink-0" />
+                    <span className="truncate">Manage Users</span>
                   </Button>
                 </Link>
               )}

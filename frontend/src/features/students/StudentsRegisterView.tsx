@@ -422,7 +422,7 @@ export function StudentsRegisterView() {
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="hidden sm:flex mb-2 flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold leading-none text-navy-900">
           Student Academic Register
         </h1>

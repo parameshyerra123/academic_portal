@@ -345,30 +345,133 @@ export function StaffWorkloadView({ embedded = false }: { embedded?: boolean }) 
       {error ? <p className="text-sm text-critical">{error}</p> : null}
       {loading ? <LoadingAnimation label="Loading staff timetable & attendance records…" /> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Faculty" value={kpis.totalFaculty} hint="In active scope" />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 xl:grid-cols-4 sm:gap-3">
+        <StatCard compact label="Total Faculty" value={kpis.totalFaculty} hint="In active scope" />
         <StatCard
-          label="Classes Scheduled Today"
+          compact
+          label="Classes Today"
           value={sessionStats.totalScheduled}
           hint={`Date: ${selectedDate}`}
           tone="info"
         />
         <StatCard
-          label="Faculty Classes Posted"
+          compact
+          label="Classes Posted"
           value={`${sessionStats.totalPosted} / ${sessionStats.totalScheduled}`}
           hint={sessionStats.totalScheduled > 0 ? `${Math.round((sessionStats.totalPosted / sessionStats.totalScheduled) * 100)}% Conducted` : "No classes"}
           tone={sessionStats.totalPosted === sessionStats.totalScheduled && sessionStats.totalScheduled > 0 ? "success" : "warning"}
         />
         <StatCard
-          label="Student Attendance Rate"
+          compact
+          label="Attendance Rate"
           value={sessionStats.totalEnrolled > 0 ? `${sessionStats.overallStudentPct}%` : "—"}
           hint={sessionStats.totalEnrolled > 0 ? `${sessionStats.totalPresent} / ${sessionStats.totalEnrolled} Attended` : "Pending posting"}
           tone={sessionStats.overallStudentPct >= 75 ? "success" : "critical"}
         />
       </div>
 
-      {/* DETAILED FACULTY TIMETABLE & CLASS ATTENDANCE TABLE */}
-      <div className="overflow-x-auto rounded-lg border border-border bg-white shadow-sm">
+      {/* MOBILE CARD VIEW FOR FACULTY WORKLOAD (Compact Small Cards) */}
+      <div className="block md:hidden space-y-2.5">
+        {faculty.length === 0 ? (
+          <div className="rounded-xl border border-border bg-white p-6 text-center text-xs text-slate-500">
+            No faculty match the current filters.
+          </div>
+        ) : (
+          faculty.map((row) => {
+            const fSessions = sessions.filter((s) => s.facultyName === row.name);
+            const schedCount = fSessions.length;
+            const postedCount = fSessions.filter((s) => s.posted).length;
+            const presentCount = fSessions.reduce((sum, s) => sum + (s.presentCount ?? 0), 0);
+            const absentCount = fSessions.reduce((sum, s) => sum + (s.absentCount ?? 0), 0);
+            const totalStudents = presentCount + absentCount;
+            const studentPct = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : null;
+            const isExpanded = expandedFacultyId === row.id;
+
+            return (
+              <div
+                key={row.id}
+                className="rounded-xl border border-border/80 bg-white p-3 shadow-2xs space-y-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-900 text-white font-bold text-xs">
+                      {row.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-navy-900 text-xs truncate">{row.name}</p>
+                      <p className="text-[10px] text-slate-500 truncate">{row.department} {row.code ? `• ${row.code}` : ""}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold shrink-0 ${postedCount === schedCount && schedCount > 0 ? "bg-emerald-100 text-emerald-800" : schedCount > 0 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                    {schedCount > 0 ? `${postedCount}/${schedCount} Posted` : "No classes"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-50 p-1.5 text-center text-[10px] border border-slate-100">
+                  <div>
+                    <span className="text-slate-400 block">Weekly Load</span>
+                    <strong className="text-navy-900 font-extrabold">{row.periodsPerWeek} p/wk</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Enrolled</span>
+                    <strong className="text-navy-900 font-extrabold">{totalStudents > 0 ? totalStudents : "—"}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Attendance</span>
+                    <strong className={studentPct !== null && studentPct >= 75 ? "text-emerald-700 font-extrabold" : "text-amber-700 font-extrabold"}>
+                      {studentPct !== null ? `${studentPct}%` : "Pending"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px] font-semibold"
+                    onClick={() => setExpandedFacultyId(isExpanded ? null : row.id)}
+                  >
+                    {isExpanded ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                    {fSessions.length} Classes
+                  </Button>
+                  <Link href={`/staff-workload/${row.id}`}>
+                    <Button size="sm" variant="secondary" className="h-7 px-2.5 text-[11px] font-semibold">
+                      Grid View
+                    </Button>
+                  </Link>
+                </div>
+
+                {/* Mobile Expanded Sessions */}
+                {isExpanded && (
+                  <div className="pt-2 border-t border-border space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      Classes for {selectedDate}
+                    </p>
+                    {fSessions.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No classes scheduled on this date.</p>
+                    ) : (
+                      fSessions.map((s) => (
+                        <div key={s.id} className="rounded-lg border border-slate-200 p-2 bg-slate-50 text-[11px] space-y-1">
+                          <div className="flex justify-between items-start">
+                            <span className="font-bold text-navy-900 line-clamp-1">{s.subjectName || s.subjectCode}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${s.posted ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                              {s.posted ? "Attended" : "Pending"}
+                            </span>
+                          </div>
+                          <p className="text-slate-500 text-[10px]">{s.section || "Sec"} · {s.slotLabel || s.startTime}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* DETAILED FACULTY TIMETABLE & CLASS ATTENDANCE TABLE (DESKTOP) */}
+      <div className="hidden md:block overflow-x-auto rounded-lg border border-border bg-white shadow-sm">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-border">
