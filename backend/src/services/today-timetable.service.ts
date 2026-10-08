@@ -698,3 +698,792 @@ export async function getAllBatchesDailyTimetableData(filters: {
   };
 }
 
+export type MasterVsChangedReportFilter = {
+  academicYear?: string;
+  collegeId?: number;
+  courseId?: number;
+  branchId?: number;
+  batch?: string;
+  semester?: number;
+  sectionName?: string | null;
+  startDate?: string;
+  endDate?: string;
+  staffHrmsId?: string;
+  subjectCode?: string;
+  limit?: number;
+};
+
+export async function getMasterVsChangedTimetableReport(filters: MasterVsChangedReportFilter) {
+  await ensureDailyTimetableTable();
+
+  // 1. Build where conditions for activities
+  const actConds: string[] = [];
+  const actParams: unknown[] = [];
+
+  if (filters.academicYear && filters.academicYear !== "all") {
+    actConds.push("academic_year = ?");
+    actParams.push(filters.academicYear);
+  }
+  if (filters.collegeId) {
+    actConds.push("college_id = ?");
+    actParams.push(filters.collegeId);
+  }
+  if (filters.courseId) {
+    actConds.push("course_id = ?");
+    actParams.push(filters.courseId);
+  }
+  if (filters.branchId) {
+    actConds.push("branch_id = ?");
+    actParams.push(filters.branchId);
+  }
+  if (filters.batch && filters.batch !== "all") {
+    actConds.push("batch = ?");
+    actParams.push(filters.batch);
+  }
+  if (filters.semester) {
+    actConds.push("semester = ?");
+    actParams.push(filters.semester);
+  }
+  if (filters.sectionName && filters.sectionName !== "all") {
+    actConds.push("section_name = ?");
+    actParams.push(filters.sectionName);
+  }
+  if (filters.startDate) {
+    actConds.push("timetable_date >= ?");
+    actParams.push(filters.startDate);
+  }
+  if (filters.endDate) {
+    actConds.push("timetable_date <= ?");
+    actParams.push(filters.endDate);
+  }
+  if (filters.staffHrmsId && filters.staffHrmsId !== "all") {
+    actConds.push("(master_faculty_hrms_id = ? OR new_faculty_hrms_id = ?)");
+    actParams.push(filters.staffHrmsId, filters.staffHrmsId);
+  }
+  if (filters.subjectCode && filters.subjectCode !== "all") {
+    actConds.push("(master_subject_code = ? OR new_subject_code = ?)");
+    actParams.push(filters.subjectCode, filters.subjectCode);
+  }
+
+  const actWhere = actConds.length > 0 ? `WHERE ${actConds.join(" AND ")}` : "";
+
+  // 2. Query all matching activities
+  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 300);
+  const activityRows = await queryAcademic<ActivityDbRow[]>(
+    `
+    SELECT *
+    FROM ap_daily_timetable_activities
+    ${actWhere}
+    ORDER BY timetable_date DESC, id DESC
+    LIMIT ${limit}
+    `,
+    actParams,
+  );
+
+  // 3. Query Master timetable entries matching scope
+  const masterConds: string[] = ["p.status NOT IN ('superseded', 'archived')"];
+  const masterParams: unknown[] = [];
+
+  if (filters.academicYear && filters.academicYear !== "all") {
+    masterConds.push("p.academic_year_label = ?");
+    masterParams.push(filters.academicYear);
+  }
+  if (filters.collegeId) {
+    masterConds.push("p.college_id = ?");
+    masterParams.push(filters.collegeId);
+  }
+  if (filters.courseId) {
+    masterConds.push("p.course_id = ?");
+    masterParams.push(filters.courseId);
+  }
+  if (filters.branchId) {
+    masterConds.push("p.branch_id = ?");
+    masterParams.push(filters.branchId);
+  }
+  if (filters.batch && filters.batch !== "all") {
+    masterConds.push("p.batch = ?");
+    masterParams.push(filters.batch);
+  }
+  if (filters.semester) {
+    masterConds.push("p.semester_number = ?");
+    masterParams.push(filters.semester);
+  }
+  if (filters.sectionName && filters.sectionName !== "all") {
+    masterConds.push("p.section_name = ?");
+    masterParams.push(filters.sectionName);
+  }
+  if (filters.staffHrmsId && filters.staffHrmsId !== "all") {
+    masterConds.push("sl.hrms_employee_id = ?");
+    masterParams.push(filters.staffHrmsId);
+  }
+  if (filters.subjectCode && filters.subjectCode !== "all") {
+    masterConds.push("e.subject_code = ?");
+    masterParams.push(filters.subjectCode);
+  }
+
+  const masterRows = await queryAcademic<
+    (RowDataPacket & {
+      college_id: number;
+      course_id: number;
+      branch_id: number;
+      batch: string;
+      semester_number: number;
+      section_name: string | null;
+      subject_code: string | null;
+      subject_name: string | null;
+      faculty_hrms_id: string | null;
+      faculty_name: string | null;
+      master_periods: number;
+    })[]
+  >(
+    `
+    SELECT 
+      p.college_id, p.course_id, p.branch_id, p.batch, p.semester_number, p.section_name,
+      e.subject_code, e.subject_name,
+      sl.hrms_employee_id as faculty_hrms_id, sl.display_name as faculty_name,
+      COUNT(*) as master_periods
+    FROM ap_timetable_plans p
+    INNER JOIN ap_timetable_entries e ON e.plan_id = p.id
+    LEFT JOIN ap_staff_link sl ON sl.id = e.faculty_staff_link_id
+    WHERE ${masterConds.join(" AND ")}
+    GROUP BY p.college_id, p.course_id, p.branch_id, p.batch, p.semester_number, p.section_name,
+             e.subject_code, e.subject_name, sl.hrms_employee_id, sl.display_name
+    `,
+    masterParams,
+  );
+
+  // 4. Query Class sessions & attendance posts
+  const sessConds: string[] = [];
+  const sessParams: unknown[] = [];
+
+  if (filters.academicYear && filters.academicYear !== "all") {
+    sessConds.push("cs.academic_year_label = ?");
+    sessParams.push(filters.academicYear);
+  }
+  if (filters.collegeId) {
+    sessConds.push("cs.college_id = ?");
+    sessParams.push(filters.collegeId);
+  }
+  if (filters.branchId) {
+    sessConds.push("cs.branch_id = ?");
+    sessParams.push(filters.branchId);
+  } else if (filters.courseId) {
+    const branchRows = await queryStudent<Array<RowDataPacket & { id: number }>>(
+      "SELECT id FROM course_branches WHERE course_id = ?",
+      [filters.courseId],
+    );
+    const branchIds = branchRows.map((r) => r.id);
+    if (branchIds.length > 0) {
+      sessConds.push(`cs.branch_id IN (${branchIds.map(() => "?").join(", ")})`);
+      sessParams.push(...branchIds);
+    }
+  }
+  if (filters.batch && filters.batch !== "all") {
+    sessConds.push("cs.batch_label = ?");
+    sessParams.push(filters.batch);
+  }
+  if (filters.semester) {
+    sessConds.push("cs.semester_number = ?");
+    sessParams.push(filters.semester);
+  }
+  if (filters.sectionName && filters.sectionName !== "all") {
+    sessConds.push("cs.section_name = ?");
+    sessParams.push(filters.sectionName);
+  }
+  if (filters.startDate) {
+    sessConds.push("cs.session_date >= ?");
+    sessParams.push(filters.startDate);
+  }
+  if (filters.endDate) {
+    sessConds.push("cs.session_date <= ?");
+    sessParams.push(filters.endDate);
+  }
+  if (filters.staffHrmsId && filters.staffHrmsId !== "all") {
+    sessConds.push("sl.hrms_employee_id = ?");
+    sessParams.push(filters.staffHrmsId);
+  }
+  if (filters.subjectCode && filters.subjectCode !== "all") {
+    sessConds.push("cs.subject_code = ?");
+    sessParams.push(filters.subjectCode);
+  }
+
+  const sessWhere = sessConds.length > 0 ? `WHERE ${sessConds.join(" AND ")}` : "";
+
+  const sessionRows = await queryAcademic<
+    (RowDataPacket & {
+      subject_code: string | null;
+      subject_name: string | null;
+      faculty_hrms_id: string | null;
+      faculty_name: string | null;
+      total_sessions: number;
+      conducted_sessions: number;
+      total_present: number;
+      total_marked: number;
+    })[]
+  >(
+    `
+    SELECT 
+      cs.subject_code, cs.subject_name,
+      sl.hrms_employee_id as faculty_hrms_id, sl.display_name as faculty_name,
+      COUNT(DISTINCT cs.id) as total_sessions,
+      COUNT(DISTINCT ap.id) as conducted_sessions,
+      SUM(COALESCE(ap.present_count, 0)) as total_present,
+      SUM(COALESCE(ap.present_count, 0) + COALESCE(ap.absent_count, 0)) as total_marked
+    FROM ap_class_sessions cs
+    LEFT JOIN ap_attendance_posts ap ON ap.class_session_id = cs.id
+    LEFT JOIN ap_staff_link sl ON sl.id = cs.faculty_staff_link_id
+    ${sessWhere}
+    GROUP BY cs.subject_code, cs.subject_name, sl.hrms_employee_id, sl.display_name
+    `,
+    sessParams,
+  );
+
+  // 4b. Query period-by-period comparisons (Master vs Today)
+  const compConds: string[] = [];
+  const compParams: unknown[] = [];
+
+  if (filters.academicYear && filters.academicYear !== "all") {
+    compConds.push("cs.academic_year_label = ?");
+    compParams.push(filters.academicYear);
+  }
+  if (filters.collegeId) {
+    compConds.push("cs.college_id = ?");
+    compParams.push(filters.collegeId);
+  }
+  if (filters.branchId) {
+    compConds.push("cs.branch_id = ?");
+    compParams.push(filters.branchId);
+  } else if (filters.courseId) {
+    const branchRows = await queryStudent<Array<RowDataPacket & { id: number }>>(
+      "SELECT id FROM course_branches WHERE course_id = ?",
+      [filters.courseId],
+    );
+    const branchIds = branchRows.map((r) => r.id);
+    if (branchIds.length > 0) {
+      compConds.push(`cs.branch_id IN (${branchIds.map(() => "?").join(", ")})`);
+      compParams.push(...branchIds);
+    }
+  }
+  if (filters.batch && filters.batch !== "all") {
+    compConds.push("cs.batch_label = ?");
+    compParams.push(filters.batch);
+  }
+  if (filters.semester) {
+    compConds.push("cs.semester_number = ?");
+    compParams.push(filters.semester);
+  }
+  if (filters.sectionName && filters.sectionName !== "all") {
+    compConds.push("cs.section_name = ?");
+    compParams.push(filters.sectionName);
+  }
+  if (filters.startDate) {
+    compConds.push("cs.session_date >= ?");
+    compParams.push(filters.startDate);
+  }
+  if (filters.endDate) {
+    compConds.push("cs.session_date <= ?");
+    compParams.push(filters.endDate);
+  }
+  if (filters.staffHrmsId && filters.staffHrmsId !== "all") {
+    compConds.push("(sl.hrms_employee_id = ? OR sl_master.hrms_employee_id = ?)");
+    compParams.push(filters.staffHrmsId, filters.staffHrmsId);
+  }
+  if (filters.subjectCode && filters.subjectCode !== "all") {
+    compConds.push("(cs.subject_code = ? OR te.subject_code = ?)");
+    compParams.push(filters.subjectCode, filters.subjectCode);
+  }
+
+  const compWhere = compConds.length > 0 ? `WHERE ${compConds.join(" AND ")}` : "";
+
+  const comparisonRows = await queryAcademic<
+    (RowDataPacket & {
+      id: number;
+      session_date: string;
+      day_of_week: string;
+      start_time: string;
+      end_time: string;
+      period_slot_id: number | null;
+      batch: string | null;
+      section_name: string | null;
+      semester_number: number | null;
+      actual_subject_code: string | null;
+      actual_subject_name: string | null;
+      actual_faculty_name: string | null;
+      actual_faculty_hrms_id: string | null;
+      master_subject_code: string | null;
+      master_subject_name: string | null;
+      master_faculty_name: string | null;
+      master_faculty_hrms_id: string | null;
+      attendance_post_id: number | null;
+      present_count: number | null;
+      absent_count: number | null;
+    })[]
+  >(
+    `
+    SELECT 
+      cs.id,
+      cs.session_date,
+      cs.day_of_week,
+      cs.start_time,
+      cs.end_time,
+      cs.period_slot_id,
+      cs.batch_label as batch,
+      cs.section_name,
+      cs.semester_number,
+      cs.subject_code as actual_subject_code,
+      cs.subject_name as actual_subject_name,
+      sl.display_name as actual_faculty_name,
+      sl.hrms_employee_id as actual_faculty_hrms_id,
+      COALESCE(te.subject_code, cs.subject_code) as master_subject_code,
+      COALESCE(te.subject_name, cs.subject_name) as master_subject_name,
+      COALESCE(sl_master.display_name, sl.display_name) as master_faculty_name,
+      COALESCE(sl_master.hrms_employee_id, sl.hrms_employee_id) as master_faculty_hrms_id,
+      ap.id as attendance_post_id,
+      ap.present_count,
+      ap.absent_count
+    FROM ap_class_sessions cs
+    LEFT JOIN ap_timetable_entries te ON te.id = cs.timetable_entry_id
+    LEFT JOIN ap_staff_link sl_master ON sl_master.id = te.faculty_staff_link_id
+    LEFT JOIN ap_staff_link sl ON sl.id = cs.faculty_staff_link_id
+    LEFT JOIN ap_attendance_posts ap ON ap.class_session_id = cs.id
+    ${compWhere}
+    ORDER BY cs.session_date DESC, cs.start_time ASC
+    LIMIT 200
+    `,
+    compParams,
+  );
+
+  const comparisons = comparisonRows.map((r) => {
+    const isSubstitute = Boolean(
+      r.actual_faculty_hrms_id &&
+        r.master_faculty_hrms_id &&
+        r.actual_faculty_hrms_id.trim() !== r.master_faculty_hrms_id.trim(),
+    );
+    const isSwap = Boolean(
+      r.actual_subject_code &&
+        r.master_subject_code &&
+        r.actual_subject_code.trim().toUpperCase() !==
+          r.master_subject_code.trim().toUpperCase(),
+    );
+
+    let varianceType: "UNCHANGED" | "FACULTY_SUBSTITUTE" | "SUBJECT_SWAP" | "BOTH" =
+      "UNCHANGED";
+    if (isSubstitute && isSwap) varianceType = "BOTH";
+    else if (isSubstitute) varianceType = "FACULTY_SUBSTITUTE";
+    else if (isSwap) varianceType = "SUBJECT_SWAP";
+
+    const totalMarked = (r.present_count || 0) + (r.absent_count || 0);
+    const attendancePct =
+      totalMarked > 0 ? Math.round(((r.present_count || 0) / totalMarked) * 100) : null;
+
+    return {
+      id: r.id,
+      date: String(r.session_date).slice(0, 10),
+      dayOfWeek: r.day_of_week || "",
+      time: `${r.start_time ? r.start_time.slice(0, 5) : ""} - ${r.end_time ? r.end_time.slice(0, 5) : ""}`,
+      slotLabel: r.period_slot_id ? `P${r.period_slot_id}` : "Session",
+      batch: r.batch || "Regular",
+      sectionName: r.section_name || null,
+      semester: r.semester_number || 1,
+      masterSubjectCode: r.master_subject_code,
+      masterSubjectName: r.master_subject_name,
+      masterFacultyName: r.master_faculty_name,
+      masterFacultyHrmsId: r.master_faculty_hrms_id,
+      todaySubjectCode: r.actual_subject_code,
+      todaySubjectName: r.actual_subject_name,
+      todayFacultyName: r.actual_faculty_name,
+      todayFacultyHrmsId: r.actual_faculty_hrms_id,
+      varianceType,
+      isConducted: Boolean(r.attendance_post_id),
+      presentCount: r.present_count || 0,
+      absentCount: r.absent_count || 0,
+      attendancePct,
+    };
+  });
+
+  // 5. Build Aggregates
+  let totalMasterPeriods = 0;
+  for (const m of masterRows) {
+    totalMasterPeriods += Number(m.master_periods) || 0;
+  }
+
+  let totalScheduledSessions = 0;
+  let totalConductedSessions = 0;
+  let sumPresent = 0;
+  let sumMarked = 0;
+  for (const s of sessionRows) {
+    totalScheduledSessions += Number(s.total_sessions) || 0;
+    totalConductedSessions += Number(s.conducted_sessions) || 0;
+    sumPresent += Number(s.total_present) || 0;
+    sumMarked += Number(s.total_marked) || 0;
+  }
+
+  const attendanceAvgPct =
+    sumMarked > 0 ? Math.round((sumPresent / sumMarked) * 100) : 0;
+
+  // Process activities
+  let facultySubstitutionsCount = 0;
+  let subjectSwapsCount = 0;
+  let revertedCount = 0;
+
+  const subjectMap = new Map<
+    string,
+    {
+      subjectCode: string;
+      subjectName: string;
+      masterWeeklyPeriods: number;
+      totalConducted: number;
+      timesChanged: number;
+      timesSwappedOut: number;
+      timesSwappedIn: number;
+      facultyNames: Set<string>;
+      totalPresent: number;
+      totalMarked: number;
+    }
+  >();
+
+  const facultyMap = new Map<
+    string,
+    {
+      hrmsId: string;
+      facultyName: string;
+      masterAssignedPeriods: number;
+      classesConducted: number;
+      relievedCount: number;
+      substituteTakenCount: number;
+      subjects: Set<string>;
+    }
+  >();
+
+  // Initialize from Master Rows
+  for (const m of masterRows) {
+    if (m.subject_code) {
+      const code = m.subject_code.trim();
+      const existing = subjectMap.get(code) || {
+        subjectCode: code,
+        subjectName: m.subject_name?.trim() || code,
+        masterWeeklyPeriods: 0,
+        totalConducted: 0,
+        timesChanged: 0,
+        timesSwappedOut: 0,
+        timesSwappedIn: 0,
+        facultyNames: new Set<string>(),
+        totalPresent: 0,
+        totalMarked: 0,
+      };
+      existing.masterWeeklyPeriods += Number(m.master_periods) || 0;
+      if (m.faculty_name) existing.facultyNames.add(m.faculty_name.trim());
+      subjectMap.set(code, existing);
+    }
+
+    if (m.faculty_hrms_id) {
+      const hrms = m.faculty_hrms_id.trim();
+      const existing = facultyMap.get(hrms) || {
+        hrmsId: hrms,
+        facultyName: m.faculty_name?.trim() || `Staff #${hrms}`,
+        masterAssignedPeriods: 0,
+        classesConducted: 0,
+        relievedCount: 0,
+        substituteTakenCount: 0,
+        subjects: new Set<string>(),
+      };
+      existing.masterAssignedPeriods += Number(m.master_periods) || 0;
+      if (m.subject_name) existing.subjects.add(m.subject_name.trim());
+      facultyMap.set(hrms, existing);
+    }
+  }
+
+  // Incorporate Session Rows (Conducted Classes)
+  for (const s of sessionRows) {
+    if (s.subject_code) {
+      const code = s.subject_code.trim();
+      const existing = subjectMap.get(code) || {
+        subjectCode: code,
+        subjectName: s.subject_name?.trim() || code,
+        masterWeeklyPeriods: 0,
+        totalConducted: 0,
+        timesChanged: 0,
+        timesSwappedOut: 0,
+        timesSwappedIn: 0,
+        facultyNames: new Set<string>(),
+        totalPresent: 0,
+        totalMarked: 0,
+      };
+      existing.totalConducted += Number(s.conducted_sessions) || 0;
+      existing.totalPresent += Number(s.total_present) || 0;
+      existing.totalMarked += Number(s.total_marked) || 0;
+      if (s.faculty_name) existing.facultyNames.add(s.faculty_name.trim());
+      subjectMap.set(code, existing);
+    }
+
+    if (s.faculty_hrms_id) {
+      const hrms = s.faculty_hrms_id.trim();
+      const existing = facultyMap.get(hrms) || {
+        hrmsId: hrms,
+        facultyName: s.faculty_name?.trim() || `Staff #${hrms}`,
+        masterAssignedPeriods: 0,
+        classesConducted: 0,
+        relievedCount: 0,
+        substituteTakenCount: 0,
+        subjects: new Set<string>(),
+      };
+      existing.classesConducted += Number(s.conducted_sessions) || 0;
+      if (s.subject_name) existing.subjects.add(s.subject_name.trim());
+      facultyMap.set(hrms, existing);
+    }
+  }
+
+  // Incorporate Daily Activities (Changes & Overrides)
+  const recentChanges = activityRows.map((r) => {
+    const isReverted = r.change_type === "REVERTED_TO_MASTER";
+    const facChanged =
+      !isReverted &&
+      Boolean(
+        r.new_faculty_hrms_id &&
+          r.master_faculty_hrms_id &&
+          r.new_faculty_hrms_id.trim() !== r.master_faculty_hrms_id.trim(),
+      );
+    const subChanged =
+      !isReverted &&
+      Boolean(
+        r.new_subject_code &&
+          r.master_subject_code &&
+          r.new_subject_code.trim().toUpperCase() !==
+            r.master_subject_code.trim().toUpperCase(),
+      );
+
+    if (isReverted) {
+      revertedCount++;
+    } else {
+      if (facChanged) facultySubstitutionsCount++;
+      if (subChanged) subjectSwapsCount++;
+    }
+
+    let varianceType: "FACULTY_SUBSTITUTE" | "SUBJECT_SWAP" | "BOTH" | "REVERTED" | "PERIOD_OVERRIDE" =
+      "PERIOD_OVERRIDE";
+    if (isReverted) varianceType = "REVERTED";
+    else if (facChanged && subChanged) varianceType = "BOTH";
+    else if (facChanged) varianceType = "FACULTY_SUBSTITUTE";
+    else if (subChanged) varianceType = "SUBJECT_SWAP";
+
+    if (r.master_subject_code) {
+      const code = r.master_subject_code.trim();
+      const sub = subjectMap.get(code);
+      if (sub) {
+        sub.timesChanged++;
+        if (subChanged) sub.timesSwappedOut++;
+      }
+    }
+    if (r.new_subject_code && subChanged) {
+      const code = r.new_subject_code.trim();
+      const sub = subjectMap.get(code) || {
+        subjectCode: code,
+        subjectName: r.new_subject_name?.trim() || code,
+        masterWeeklyPeriods: 0,
+        totalConducted: 0,
+        timesChanged: 0,
+        timesSwappedOut: 0,
+        timesSwappedIn: 0,
+        facultyNames: new Set<string>(),
+        totalPresent: 0,
+        totalMarked: 0,
+      };
+      sub.timesSwappedIn++;
+      subjectMap.set(code, sub);
+    }
+
+    if (r.master_faculty_hrms_id && facChanged) {
+      const hrms = r.master_faculty_hrms_id.trim();
+      const fac = facultyMap.get(hrms);
+      if (fac) fac.relievedCount++;
+    }
+    if (r.new_faculty_hrms_id && facChanged) {
+      const hrms = r.new_faculty_hrms_id.trim();
+      const fac = facultyMap.get(hrms) || {
+        hrmsId: hrms,
+        facultyName: r.new_faculty_name?.trim() || `Staff #${hrms}`,
+        masterAssignedPeriods: 0,
+        classesConducted: 0,
+        relievedCount: 0,
+        substituteTakenCount: 0,
+        subjects: new Set<string>(),
+      };
+      fac.substituteTakenCount++;
+      facultyMap.set(hrms, fac);
+    }
+
+    return {
+      id: r.id,
+      timetableDate: String(r.timetable_date).slice(0, 10),
+      collegeId: r.college_id,
+      courseId: r.course_id,
+      branchId: r.branch_id,
+      batch: r.batch,
+      semester: r.semester,
+      sectionName: r.section_name,
+      slotLabel: r.slot_label || `Slot ${r.timing_slot_id}`,
+      slotTime: r.slot_time || "",
+      masterSubjectCode: r.master_subject_code,
+      masterSubjectName: r.master_subject_name,
+      masterFacultyHrmsId: r.master_faculty_hrms_id,
+      masterFacultyName: r.master_faculty_name,
+      newSubjectCode: r.new_subject_code,
+      newSubjectName: r.new_subject_name,
+      newFacultyHrmsId: r.new_faculty_hrms_id,
+      newFacultyName: r.new_faculty_name,
+      changeType: r.change_type,
+      remarks: r.remarks,
+      changedByName: r.changed_by_name,
+      createdAt: r.created_at,
+      varianceType,
+    };
+  });
+
+  const totalChangesRecorded = activityRows.length;
+  const overallChangeRatePct =
+    totalScheduledSessions > 0
+      ? Math.min(100, Math.round((totalChangesRecorded / totalScheduledSessions) * 100))
+      : totalMasterPeriods > 0
+        ? Math.min(100, Math.round((totalChangesRecorded / (totalMasterPeriods * 15)) * 100))
+        : 0;
+
+  const subjects = Array.from(subjectMap.values())
+    .map((s) => ({
+      subjectCode: s.subjectCode,
+      subjectName: s.subjectName,
+      masterWeeklyPeriods: s.masterWeeklyPeriods,
+      totalConducted: s.totalConducted,
+      timesChanged: s.timesChanged,
+      timesSwappedOut: s.timesSwappedOut,
+      timesSwappedIn: s.timesSwappedIn,
+      facultyNames: Array.from(s.facultyNames),
+      attendancePct:
+        s.totalMarked > 0 ? Math.round((s.totalPresent / s.totalMarked) * 100) : 0,
+    }))
+    .sort((a, b) => b.timesChanged - a.timesChanged || b.masterWeeklyPeriods - a.masterWeeklyPeriods);
+
+  const faculties = Array.from(facultyMap.values())
+    .map((f) => ({
+      hrmsId: f.hrmsId,
+      facultyName: f.facultyName,
+      masterAssignedPeriods: f.masterAssignedPeriods,
+      classesConducted: f.classesConducted,
+      relievedCount: f.relievedCount,
+      substituteTakenCount: f.substituteTakenCount,
+      netTeachingCount: f.classesConducted || Math.max(0, f.masterAssignedPeriods - f.relievedCount + f.substituteTakenCount),
+      subjects: Array.from(f.subjects),
+    }))
+    .sort(
+      (a, b) =>
+        b.substituteTakenCount + b.relievedCount - (a.substituteTakenCount + a.relievedCount) ||
+        b.masterAssignedPeriods - a.masterAssignedPeriods,
+    );
+
+  // 5. Query catalog of faculties and subjects across the academic scope (unfiltered by staffHrmsId or subjectCode)
+  const scopeMasterConds = ["p.status NOT IN ('superseded', 'archived')"];
+  const scopeMasterParams: unknown[] = [];
+
+  if (filters.academicYear && filters.academicYear !== "all") {
+    scopeMasterConds.push("p.academic_year_label = ?");
+    scopeMasterParams.push(filters.academicYear);
+  }
+  if (filters.collegeId) {
+    scopeMasterConds.push("p.college_id = ?");
+    scopeMasterParams.push(filters.collegeId);
+  }
+  if (filters.courseId) {
+    scopeMasterConds.push("p.course_id = ?");
+    scopeMasterParams.push(filters.courseId);
+  }
+  if (filters.branchId) {
+    scopeMasterConds.push("p.branch_id = ?");
+    scopeMasterParams.push(filters.branchId);
+  }
+  if (filters.batch && filters.batch !== "all") {
+    scopeMasterConds.push("p.batch = ?");
+    scopeMasterParams.push(filters.batch);
+  }
+
+  const [catalogSubjectRows, catalogFacultyRows] = await Promise.all([
+    queryAcademic<Array<RowDataPacket & { subject_code: string | null; subject_name: string | null }>>(
+      `
+      SELECT DISTINCT e.subject_code, e.subject_name
+      FROM ap_timetable_plans p
+      JOIN ap_timetable_entries e ON e.plan_id = p.id
+      WHERE ${scopeMasterConds.join(" AND ")} AND e.subject_code IS NOT NULL AND e.subject_code != ''
+      ORDER BY e.subject_name ASC
+      `,
+      scopeMasterParams,
+    ),
+    queryAcademic<Array<RowDataPacket & { hrms_employee_id: string | null; display_name: string | null }>>(
+      `
+      SELECT DISTINCT sl.hrms_employee_id, sl.display_name
+      FROM ap_timetable_plans p
+      JOIN ap_timetable_entries e ON e.plan_id = p.id
+      JOIN ap_staff_link sl ON sl.id = e.faculty_staff_link_id
+      WHERE ${scopeMasterConds.join(" AND ")} AND sl.hrms_employee_id IS NOT NULL
+      ORDER BY sl.display_name ASC
+      `,
+      scopeMasterParams,
+    ),
+  ]);
+
+  const catalogSubjectsMap = new Map<string, string>();
+  for (const row of catalogSubjectRows) {
+    if (row.subject_code) {
+      catalogSubjectsMap.set(row.subject_code.trim(), row.subject_name?.trim() || row.subject_code.trim());
+    }
+  }
+  for (const act of activityRows) {
+    if (act.master_subject_code) {
+      catalogSubjectsMap.set(act.master_subject_code.trim(), act.master_subject_name?.trim() || act.master_subject_code.trim());
+    }
+    if (act.new_subject_code) {
+      catalogSubjectsMap.set(act.new_subject_code.trim(), act.new_subject_name?.trim() || act.new_subject_code.trim());
+    }
+  }
+
+  const catalogFacultiesMap = new Map<string, string>();
+  for (const row of catalogFacultyRows) {
+    if (row.hrms_employee_id) {
+      catalogFacultiesMap.set(row.hrms_employee_id.trim(), row.display_name?.trim() || `Staff #${row.hrms_employee_id}`);
+    }
+  }
+  for (const act of activityRows) {
+    if (act.master_faculty_hrms_id) {
+      catalogFacultiesMap.set(act.master_faculty_hrms_id.trim(), act.master_faculty_name?.trim() || `Staff #${act.master_faculty_hrms_id}`);
+    }
+    if (act.new_faculty_hrms_id) {
+      catalogFacultiesMap.set(act.new_faculty_hrms_id.trim(), act.new_faculty_name?.trim() || `Staff #${act.new_faculty_hrms_id}`);
+    }
+  }
+
+  const catalogSubjects = Array.from(catalogSubjectsMap.entries())
+    .map(([subjectCode, subjectName]) => ({ subjectCode, subjectName }))
+    .sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+
+  const catalogFaculties = Array.from(catalogFacultiesMap.entries())
+    .map(([hrmsId, facultyName]) => ({ hrmsId, facultyName }))
+    .sort((a, b) => a.facultyName.localeCompare(b.facultyName));
+
+  return {
+    summary: {
+      totalMasterPeriods,
+      totalScheduledSessions,
+      totalConductedSessions,
+      totalChangesRecorded,
+      facultySubstitutionsCount,
+      subjectSwapsCount,
+      revertedCount,
+      overallChangeRatePct,
+      attendanceAvgPct,
+    },
+    subjects,
+    faculties,
+    recentChanges,
+    comparisons,
+    catalogSubjects,
+    catalogFaculties,
+  };
+}
+

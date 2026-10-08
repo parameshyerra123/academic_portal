@@ -1,15 +1,17 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AttendanceAnalyticsView } from "@/features/attendance-analytics/AttendanceAnalyticsView";
 import { StaffWorkloadView } from "@/features/workload/StaffWorkloadView";
+import { MasterVsChangedReport } from "@/features/reports/MasterVsChangedReport";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { apiFetch } from "@/lib/api";
-import { ChevronRight, Printer } from "lucide-react";
+import { Calendar, ChevronRight, Printer, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { escapeHtml, printElement, printHtml } from "@/lib/print-service";
 import {
@@ -24,7 +26,10 @@ import {
 import { useSearchParams } from "next/navigation";
 
 type ReportKey =
-  "department-timetables" | "staff-timetables" | "student-analytics";
+  | "department-timetables"
+  | "master-vs-changed"
+  | "staff-timetables"
+  | "student-analytics";
 
 type ReportDef = {
   key: ReportKey;
@@ -36,17 +41,22 @@ const REPORT_TABS: ReportDef[] = [
   {
     key: "department-timetables",
     title: "Department-wise timetable reports",
-    permissions: ["timetable.view"],
+    permissions: ["timetable.view", "reports.view"],
+  },
+  {
+    key: "master-vs-changed",
+    title: "Master vs Changed Timetable",
+    permissions: ["today_timetable.view", "timetable.view", "reports.view"],
   },
   {
     key: "staff-timetables",
     title: "Staff timetable reports",
-    permissions: ["workload.view"],
+    permissions: ["workload.view", "reports.view"],
   },
   {
     key: "student-analytics",
     title: "Student analytics reports",
-    permissions: ["attendance_analytics.view"],
+    permissions: ["attendance_analytics.view", "reports.view"],
   },
 ];
 
@@ -75,6 +85,8 @@ export function ReportsView() {
     if (!activeTab) return null;
     if (activeTab.key === "department-timetables")
       return <DepartmentTimetableReport />;
+    if (activeTab.key === "master-vs-changed")
+      return <MasterVsChangedReport />;
     if (activeTab.key === "staff-timetables")
       return <StaffWorkloadView embedded />;
     return <AttendanceAnalyticsView embedded />;
@@ -89,6 +101,29 @@ export function ReportsView() {
         description="Live reports from the selected academic scope."
       />
 
+      {visibleTabs.length > 1 && (
+        <div className="mb-5 flex flex-wrap gap-2 border-b border-border/70 pb-3.5">
+          {visibleTabs.map((tab) => {
+            const isActive = activeTab?.key === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setSelectedKey(tab.key)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all shadow-xs",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "bg-surface border border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                {tab.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {visibleTabs.length === 0 ? (
         <EmptyState
           title="No reports available"
@@ -97,7 +132,7 @@ export function ReportsView() {
       ) : (
         <div>
           {activeTab ? (
-            <div className="mt-2">{renderActiveReport()}</div>
+            <div className="mt-1">{renderActiveReport()}</div>
           ) : null}
         </div>
       )}
@@ -126,6 +161,106 @@ type TimetableReportRow = {
   facultyName: string | null;
 };
 
+type ScheduleGroup = {
+  key: string;
+  batch: string;
+  section: string | null;
+  title: string;
+  displayBatch: string;
+  displaySection: string | null;
+};
+
+function cleanSectionCode(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  const stripped = trimmed.replace(/^(?:(?:section|sec)[\s.:_-]*)+/i, "").trim();
+  return (stripped || trimmed).toUpperCase();
+}
+
+function getBatchSections(
+  branchId: number | null | undefined,
+  batch: string,
+  rows: TimetableReportRow[],
+  sections?: Array<{ branchId: number; name: string; batch?: string }>,
+): string[] {
+  if (branchId == null) return [];
+  const secSet = new Set<string>();
+  for (const r of rows) {
+    if (r.branchId === branchId && r.batch === batch && r.section) {
+      const code = cleanSectionCode(r.section);
+      if (code) secSet.add(code);
+    }
+  }
+  if (sections) {
+    for (const s of sections) {
+      if (s.branchId === branchId && s.batch === batch) {
+        const code = cleanSectionCode(s.name);
+        if (code) secSet.add(code);
+      }
+    }
+  }
+  return Array.from(secSet).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
+}
+
+function batchHasMultipleSections(
+  branchId: number | null | undefined,
+  batch: string,
+  rows: TimetableReportRow[],
+  sections?: Array<{ branchId: number; name: string; batch?: string }>,
+): boolean {
+  return getBatchSections(branchId, batch, rows, sections).length > 1;
+}
+
+function branchHasMultipleSections(
+  branchId: number | null | undefined,
+  rows: TimetableReportRow[],
+  sections?: Array<{ branchId: number; name: string; batch?: string }>,
+): boolean {
+  if (branchId == null) return false;
+  const allBatches = new Set(
+    rows.filter((r) => r.branchId === branchId).map((r) => r.batch),
+  );
+  for (const b of allBatches) {
+    if (batchHasMultipleSections(branchId, b, rows, sections)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getBranchSectionList(
+  branchId: number | null | undefined,
+  rows: TimetableReportRow[],
+  sections?: Array<{ branchId: number; name: string; batch?: string }>,
+  selectedBatch?: string | null,
+): string[] {
+  if (branchId == null) return [];
+
+  // If a specific batch is selected, ONLY return sections if that batch has multiple sections
+  if (selectedBatch != null) {
+    const batchSecs = getBatchSections(branchId, selectedBatch, rows, sections);
+    return batchSecs.length > 1 ? batchSecs : [];
+  }
+
+  // If 'All batches' is selected, collect sections from any batch in this branch that has multiple sections
+  const allBatches = new Set(
+    rows.filter((r) => r.branchId === branchId).map((r) => r.batch),
+  );
+  const multiSectionCodes = new Set<string>();
+  for (const b of allBatches) {
+    const bSecs = getBatchSections(branchId, b, rows, sections);
+    if (bSecs.length > 1) {
+      for (const s of bSecs) multiSectionCodes.add(s);
+    }
+  }
+
+  return Array.from(multiSectionCodes).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
+}
+
 function DepartmentTimetableReport() {
   const { masters } = useAcademicContext();
   const [academicYear, setAcademicYear] = useState("");
@@ -133,6 +268,10 @@ function DepartmentTimetableReport() {
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [expandedCollegeIds, setExpandedCollegeIds] = useState<Set<number>>(new Set());
+  const [expandedCourseIds, setExpandedCourseIds] = useState<Set<number>>(new Set());
+  const [expandedBranchIds, setExpandedBranchIds] = useState<Set<number>>(new Set());
   const [rows, setRows] = useState<TimetableReportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
@@ -175,93 +314,291 @@ function DepartmentTimetableReport() {
     };
   }, [academicYear]);
 
-  const colleges = useMemo(
-    () =>
-      masters?.colleges.filter((college) =>
-        rows.some((row) => row.collegeId === college.id),
-      ) ?? [],
-    [masters, rows],
-  );
-  const courses = useMemo(
-    () =>
-      masters?.courses.filter((course) =>
-        rows.some(
-          (row) =>
-            (selectedCollege == null || row.collegeId === selectedCollege) &&
-            row.courseId === course.id,
-        ),
-      ) ?? [],
-    [masters, rows, selectedCollege],
-  );
-  const branches = useMemo(
-    () =>
-      masters?.branches.filter((branch) =>
-        rows.some(
-          (row) =>
-            (selectedCollege == null || row.collegeId === selectedCollege) &&
-            (selectedCourse == null || row.courseId === selectedCourse) &&
-            row.branchId === branch.id,
-        ),
-      ) ?? [],
-    [masters, rows, selectedCollege, selectedCourse],
-  );
-  const timetableRows = useMemo(
-    () =>
-      rows.filter(
-        (row) =>
-          (selectedCollege == null || row.collegeId === selectedCollege) &&
-          (selectedCourse == null || row.courseId === selectedCourse) &&
-          row.branchId === selectedBranch &&
-          (selectedBatch == null || row.batch === selectedBatch),
-      ),
-    [rows, selectedCollege, selectedCourse, selectedBranch, selectedBatch],
-  );
-  const timetableBatches = useMemo(
-    () =>
-      Array.from(new Set(timetableRows.map((row) => row.batch))).sort((a, b) =>
-        a.localeCompare(b),
-      ),
-    [timetableRows],
-  );
-  const timetableDays = ["MON", "TUE", "WED", "THUR", "FRI", "SAT", "SUN"];
-  const batches = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          rows
-            .filter(
-              (row) =>
-                (selectedCollege == null ||
-                  row.collegeId === selectedCollege) &&
-                (selectedCourse == null || row.courseId === selectedCourse) &&
-                (selectedBranch == null || row.branchId === selectedBranch),
-            )
-            .map((row) => row.batch),
-        ),
-      ).sort(),
-    [rows, selectedCollege, selectedCourse, selectedBranch],
-  );
-  const branchStats = useMemo(() => {
-    const availableBatches = masters?.batches ?? [];
-    return branches.map((branch) => {
-      const expected = new Set(
-        availableBatches
-          .filter((item) => item.branchId === branch.id)
-          .map((item) => item.batch),
+  // Sync auto-expansion when user selects filters from the top bar
+  useEffect(() => {
+    if (selectedCollege != null) {
+      setExpandedCollegeIds((prev) => new Set(prev).add(selectedCollege));
+    }
+  }, [selectedCollege]);
+
+  useEffect(() => {
+    if (selectedCourse != null) {
+      setExpandedCourseIds((prev) => new Set(prev).add(selectedCourse));
+      const course = masters?.courses.find((c) => c.id === selectedCourse);
+      if (course) {
+        setExpandedCollegeIds((prev) => new Set(prev).add(course.collegeId));
+      }
+    }
+  }, [selectedCourse, masters]);
+
+  useEffect(() => {
+    if (selectedBranch != null) {
+      setExpandedBranchIds((prev) => new Set(prev).add(selectedBranch));
+      const branch = masters?.branches.find((b) => b.id === selectedBranch);
+      if (branch) {
+        setExpandedCourseIds((prev) => new Set(prev).add(branch.courseId));
+        const course = masters?.courses.find((c) => c.id === branch.courseId);
+        if (course) {
+          setExpandedCollegeIds((prev) => new Set(prev).add(course.collegeId));
+        }
+      }
+    }
+  }, [selectedBranch, masters]);
+
+  // Dropdown filter options (always populated from master catalog)
+  const filterCourses = useMemo(() => {
+    if (!masters) return [];
+    if (selectedCollege != null) {
+      return masters.courses.filter((course) => course.collegeId === selectedCollege);
+    }
+    return masters.courses;
+  }, [masters, selectedCollege]);
+
+  const filterBranches = useMemo(() => {
+    if (!masters) return [];
+    if (selectedCourse != null) {
+      return masters.branches.filter((branch) => branch.courseId === selectedCourse);
+    }
+    if (selectedCollege != null) {
+      const collegeCourseIds = new Set(
+        masters.courses
+          .filter((course) => course.collegeId === selectedCollege)
+          .map((course) => course.id),
       );
-      const configured = new Set(
-        rows
-          .filter((row) => row.branchId === branch.id)
-          .map((row) => row.batch),
+      return masters.branches.filter((branch) => collegeCourseIds.has(branch.courseId));
+    }
+    return masters.branches;
+  }, [masters, selectedCollege, selectedCourse]);
+
+  const filterBatches = useMemo(() => {
+    if (!masters) return [];
+    let relevantBatches = masters.batches ?? [];
+    if (selectedBranch != null) {
+      relevantBatches = relevantBatches.filter((b) => b.branchId === selectedBranch);
+    } else if (selectedCourse != null) {
+      const branchIds = new Set(
+        masters.branches
+          .filter((b) => b.courseId === selectedCourse)
+          .map((b) => b.id),
       );
-      const expectedCount = expected.size || configured.size;
-      return {
-        branch,
-        configured: configured.size,
-        notConfigured: Math.max(0, expectedCount - configured.size),
-      };
+      relevantBatches = relevantBatches.filter((b) => branchIds.has(b.branchId));
+    } else if (selectedCollege != null) {
+      const collegeCourseIds = new Set(
+        masters.courses
+          .filter((c) => c.collegeId === selectedCollege)
+          .map((c) => c.id),
+      );
+      const branchIds = new Set(
+        masters.branches
+          .filter((b) => collegeCourseIds.has(b.courseId))
+          .map((b) => b.id),
+      );
+      relevantBatches = relevantBatches.filter((b) => branchIds.has(b.branchId));
+    }
+    const batchSet = new Set(relevantBatches.map((b) => b.batch));
+    rows.forEach((r) => {
+      if (
+        (selectedCollege == null || r.collegeId === selectedCollege) &&
+        (selectedCourse == null || r.courseId === selectedCourse) &&
+        (selectedBranch == null || r.branchId === selectedBranch) &&
+        r.batch
+      ) {
+        batchSet.add(r.batch);
+      }
     });
-  }, [branches, masters?.batches, rows]);
+    return Array.from(batchSet).sort();
+  }, [masters, selectedCollege, selectedCourse, selectedBranch, rows]);
+
+  // Check if currently selected branch has multiple sections (considering selectedBatch if chosen)
+  const selectedBranchHasSections = useMemo(() => {
+    if (selectedBranch == null) return false;
+    if (selectedBatch != null) {
+      return batchHasMultipleSections(selectedBranch, selectedBatch, rows, masters?.sections);
+    }
+    return branchHasMultipleSections(selectedBranch, rows, masters?.sections);
+  }, [selectedBranch, selectedBatch, rows, masters?.sections]);
+
+  // Section options - ONLY populated if branch/batch has multiple sections!
+  const availableBranchSections = useMemo(() => {
+    if (selectedBranch == null || !selectedBranchHasSections) return [];
+    return getBranchSectionList(
+      selectedBranch,
+      rows,
+      masters?.sections,
+      selectedBatch,
+    );
+  }, [selectedBranch, selectedBranchHasSections, rows, masters?.sections, selectedBatch]);
+
+  // Auto-clear selectedSection if branch/batch has no multiple sections or selection is no longer valid
+  useEffect(() => {
+    if (selectedBranch == null || !selectedBranchHasSections) {
+      if (selectedSection != null) setSelectedSection(null);
+    } else if (selectedSection != null && !availableBranchSections.includes(selectedSection)) {
+      setSelectedSection(null);
+    }
+  }, [selectedBranch, selectedBranchHasSections, availableBranchSections, selectedSection]);
+
+  // Which colleges to display in the table
+  const displayedColleges = useMemo(() => {
+    if (!masters?.colleges) return [];
+    if (selectedCollege != null) {
+      return masters.colleges.filter((c) => c.id === selectedCollege);
+    }
+    if (selectedCourse != null) {
+      const course = masters.courses.find((c) => c.id === selectedCourse);
+      if (course) {
+        return masters.colleges.filter((c) => c.id === course.collegeId);
+      }
+    }
+    if (selectedBranch != null) {
+      const branch = masters.branches.find((b) => b.id === selectedBranch);
+      const course = branch ? masters.courses.find((c) => c.id === branch.courseId) : null;
+      if (course) {
+        return masters.colleges.filter((c) => c.id === course.collegeId);
+      }
+    }
+    return masters.colleges;
+  }, [masters, selectedCollege, selectedCourse, selectedBranch]);
+
+  const toggleCollege = (collegeId: number) => {
+    setExpandedCollegeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(collegeId)) next.delete(collegeId);
+      else next.add(collegeId);
+      return next;
+    });
+  };
+
+  const toggleCourse = (courseId: number) => {
+    setExpandedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseId)) next.delete(courseId);
+      else next.add(courseId);
+      return next;
+    });
+  };
+
+  const toggleBranch = (branchId: number) => {
+    setExpandedBranchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(branchId)) next.delete(branchId);
+      else next.add(branchId);
+      return next;
+    });
+  };
+
+  const getCollegeCourses = useCallback(
+    (collegeId: number) => {
+      if (!masters?.courses) return [];
+      let list = masters.courses.filter((c) => c.collegeId === collegeId);
+      if (selectedCourse != null) {
+        list = list.filter((c) => c.id === selectedCourse);
+      }
+      return list;
+    },
+    [masters, selectedCourse],
+  );
+
+  const getCourseBranches = useCallback(
+    (courseId: number) => {
+      if (!masters?.branches) return [];
+      let list = masters.branches.filter((b) => b.courseId === courseId);
+      if (selectedBranch != null) {
+        list = list.filter((b) => b.id === selectedBranch);
+      }
+      return list;
+    },
+    [masters, selectedBranch],
+  );
+
+  const getBranchStats = useCallback(
+    (branchId: number) => {
+      const branchHasSec = branchHasMultipleSections(branchId, rows, masters?.sections);
+      const branchSections = masters?.sections.filter((s) => s.branchId === branchId) ?? [];
+      const availableBatches = masters?.batches.filter((b) => b.branchId === branchId) ?? [];
+
+      const configuredSchedules = new Set<string>();
+      for (const row of rows) {
+        if (row.branchId === branchId) {
+          const hasMulti = batchHasMultipleSections(branchId, row.batch, rows, masters?.sections);
+          const secCode = hasMulti ? cleanSectionCode(row.section) : "nosec";
+          configuredSchedules.add(`${row.batch}__${secCode}`);
+        }
+      }
+
+      let expectedCount = 0;
+      if (branchHasSec && branchSections.length > 0) {
+        expectedCount = branchSections.length;
+      } else {
+        expectedCount = availableBatches.length || configuredSchedules.size;
+      }
+
+      return {
+        configured: configuredSchedules.size,
+        notConfigured: Math.max(0, expectedCount - configuredSchedules.size),
+      };
+    },
+    [masters?.batches, masters?.sections, rows],
+  );
+
+  const getBranchSchedules = useCallback(
+    (branchId: number): ScheduleGroup[] => {
+      const branchRows = rows.filter(
+        (row) =>
+          row.branchId === branchId &&
+          (selectedBatch == null || row.batch === selectedBatch) &&
+          (selectedSection == null ||
+            !batchHasMultipleSections(branchId, row.batch, rows, masters?.sections) ||
+            cleanSectionCode(row.section) === selectedSection),
+      );
+
+      const groupMap = new Map<string, ScheduleGroup>();
+      for (const r of branchRows) {
+        const hasMulti = batchHasMultipleSections(branchId, r.batch, rows, masters?.sections);
+        const secCode = hasMulti ? cleanSectionCode(r.section) : "";
+        const key = hasMulti && secCode ? `${r.batch}__${secCode}` : `${r.batch}__nosec`;
+        if (!groupMap.has(key)) {
+          const secLabel = hasMulti && secCode ? `Section ${secCode}` : null;
+          const title = secLabel
+            ? `Batch ${r.batch} · ${secLabel}`
+            : `Batch ${r.batch}`;
+          groupMap.set(key, {
+            key,
+            batch: r.batch,
+            section: hasMulti && secCode ? secCode : null,
+            title,
+            displayBatch: r.batch,
+            displaySection: secLabel,
+          });
+        }
+      }
+
+      return Array.from(groupMap.values()).sort((a, b) => {
+        const batchCmp = a.batch.localeCompare(b.batch);
+        if (batchCmp !== 0) return batchCmp;
+        return (a.section ?? "").localeCompare(b.section ?? "");
+      });
+    },
+    [masters?.sections, rows, selectedBatch, selectedSection],
+  );
+
+  const hasActiveFilters = Boolean(
+    selectedCollege != null ||
+    selectedCourse != null ||
+    selectedBranch != null ||
+    selectedBatch != null ||
+    selectedSection != null,
+  );
+
+  const handleResetFilters = () => {
+    setSelectedCollege(null);
+    setSelectedCourse(null);
+    setSelectedBranch(null);
+    setSelectedBatch(null);
+    setSelectedSection(null);
+  };
+
+  const timetableDays = ["MON", "TUE", "WED", "THUR", "FRI", "SAT", "SUN"];
 
   const scopeName = (
     id: number | null,
@@ -269,58 +606,23 @@ function DepartmentTimetableReport() {
     fallback: string,
   ) => items.find((item) => item.id === id)?.name ?? fallback;
 
-  function printSelectedTables() {
-    const selectedCourses = selectedCourse
-      ? (masters?.courses ?? []).filter((course) => course.id === selectedCourse)
-      : courses;
-    const content = selectedCourses
-      .map(
-        (course) =>
-          `<h2 class="course-title">${escapeHtml(course.name)}</h2>${buildCoursePrintHtml(selectedCollege, course.id, selectedBranch, selectedBatch)}`,
-      )
-      .join("");
-    if (!content) return;
-
-    const collegeName = scopeName(
-      selectedCollege,
-      masters?.colleges ?? [],
-      "All colleges",
-    );
-    const courseName = scopeName(
-      selectedCourse,
-      masters?.courses ?? [],
-      "All courses",
-    );
-    const branchName = scopeName(
-      selectedBranch,
-      masters?.branches ?? [],
-      "All branches",
-    );
-    printHtml(content, {
-      title: "Department-wise timetable report",
-      subtitle: [
-        academicYear,
-        collegeName,
-        courseName,
-        branchName,
-        selectedBatch ?? "All batches",
-      ].join(" · "),
-    });
-  }
-
   function buildCoursePrintHtml(
     collegeId: number | null,
     courseId: number,
     branchId: number | null = null,
     batchFilter: string | null = null,
+    sectionFilter: string | null = null,
   ) {
     const courseRows = rows.filter(
       (row) =>
         row.courseId === courseId &&
         (collegeId == null || row.collegeId === collegeId) &&
         (branchId == null || row.branchId === branchId) &&
-        (batchFilter == null || row.batch === batchFilter),
+        (batchFilter == null || row.batch === batchFilter) &&
+        (sectionFilter == null || cleanSectionCode(row.section) === cleanSectionCode(sectionFilter)),
     );
+    if (!courseRows.length) return "";
+
     const slotKey = (row: TimetableReportRow) =>
       String(
         row.slotOrder ??
@@ -329,12 +631,14 @@ function DepartmentTimetableReport() {
       );
     const groups = new Map<string, TimetableReportRow[]>();
     for (const row of courseRows) {
-      const key = `${row.branchId}:${row.batch}`;
+      const hasMulti = batchHasMultipleSections(row.branchId, row.batch, rows, masters?.sections);
+      const secCode = hasMulti ? cleanSectionCode(row.section) : "";
+      const key = `${row.branchId}:${row.batch}:${secCode}`;
       groups.set(key, [...(groups.get(key) ?? []), row]);
     }
     return Array.from(groups.entries())
       .map(([key, batchRows]) => {
-        const [branchId, batch] = key.split(":");
+        const [bId, batch, sec] = key.split(":");
         const periods = Array.from(
           new Map(
             batchRows
@@ -346,15 +650,21 @@ function DepartmentTimetableReport() {
             (a.slotOrder ?? a.slotId ?? 0) - (b.slotOrder ?? b.slotId ?? 0),
         );
         const branchName =
-          masters?.branches.find((branch) => branch.id === Number(branchId))
-            ?.name ?? `Branch ${branchId}`;
+          masters?.branches.find((branch) => branch.id === Number(bId))
+            ?.name ?? `Branch ${bId}`;
+        const hasMulti = batchHasMultipleSections(Number(bId), batch, rows, masters?.sections);
+        const secLabel = hasMulti && sec ? `Section ${sec}` : "";
+        const titleLabel = secLabel
+          ? `${escapeHtml(branchName)} · Batch ${escapeHtml(batch)} · ${escapeHtml(secLabel)}`
+          : `${escapeHtml(branchName)} · Batch ${escapeHtml(batch)}`;
+
         const header = periods
           .map(
             (period) =>
               `<th>${escapeHtml(period.slotLabel || `P${period.slotId}`)}<br><small>${escapeHtml(`${period.startTime?.slice(0, 5) ?? ""}-${period.endTime?.slice(0, 5) ?? ""}`)}</small></th>`,
           )
           .join("");
-        const body = ["MON", "TUE", "WED", "THUR", "FRI", "SAT", "SUN"]
+        const body = timetableDays
           .map((day) => {
             const cells = periods
               .map((period) => {
@@ -384,9 +694,70 @@ function DepartmentTimetableReport() {
             return `<tr><th>${day}</th>${cells}</tr>`;
           })
           .join("");
-        return `<section class="batch-section"><div class="batch-title">${escapeHtml(branchName)} · Batch ${escapeHtml(batch)}</div><table class="batch-table"><thead><tr><th style="width:6%">Day</th>${header}</tr></thead><tbody>${body}</tbody></table></section>`;
+        return `<section class="batch-section"><div class="batch-title">${titleLabel}</div><table class="batch-table"><thead><tr><th style="width:6%">Day</th>${header}</tr></thead><tbody>${body}</tbody></table></section>`;
       })
       .join("");
+  }
+
+  function printSelectedTables() {
+    const targetColleges = displayedColleges;
+    const content = targetColleges
+      .map((college) => {
+        const collegeCourses = getCollegeCourses(college.id);
+        const courseHtml = collegeCourses
+          .map((course) => {
+            const html = buildCoursePrintHtml(
+              college.id,
+              course.id,
+              selectedBranch,
+              selectedBatch,
+              selectedSection,
+            );
+            if (!html) return "";
+            return `<h2 class="course-title">${escapeHtml(course.name)} (${escapeHtml(college.name)})</h2>${html}`;
+          })
+          .filter(Boolean)
+          .join("");
+        return courseHtml;
+      })
+      .filter(Boolean)
+      .join("");
+
+    if (!content) {
+      alert("No timetable data found to print for the selected filter.");
+      return;
+    }
+
+    const collegeName = scopeName(
+      selectedCollege,
+      masters?.colleges ?? [],
+      "All colleges",
+    );
+    const courseName = scopeName(
+      selectedCourse,
+      masters?.courses ?? [],
+      "All courses",
+    );
+    const branchName = scopeName(
+      selectedBranch,
+      masters?.branches ?? [],
+      "All branches",
+    );
+    const sectionDisplay = selectedSection
+      ? `Section ${cleanSectionCode(selectedSection)}`
+      : "All sections";
+
+    printHtml(content, {
+      title: "Department-wise timetable report",
+      subtitle: [
+        academicYear,
+        collegeName,
+        courseName,
+        branchName,
+        selectedBatch ? `Batch ${selectedBatch}` : "All batches",
+        sectionDisplay,
+      ].join(" · "),
+    });
   }
 
   function printScoped(scope: {
@@ -394,7 +765,9 @@ function DepartmentTimetableReport() {
     course?: number | null;
     branch?: number | null;
     batch?: string | null;
+    section?: string | null;
   }) {
+    const activeSection = scope.section ?? selectedSection;
     if (scope.course != null) {
       const collegeName = scopeName(
         scope.college ?? null,
@@ -408,38 +781,49 @@ function DepartmentTimetableReport() {
         "All branches",
       );
       const isBranchPrint = scope.branch != null;
-      printHtml(
-        buildCoursePrintHtml(
-          scope.college ?? null,
-          scope.course,
-          scope.branch ?? null,
-          scope.batch ?? null,
-        ),
-        {
+      const html = buildCoursePrintHtml(
+        scope.college ?? null,
+        scope.course,
+        scope.branch ?? null,
+        scope.batch ?? null,
+        activeSection,
+      );
+      if (!html) return;
+      const sectionDisplay = activeSection
+        ? `Section ${cleanSectionCode(activeSection)}`
+        : "All sections";
+      printHtml(html, {
         title: isBranchPrint ? "Branch timetable report" : "Course timetable report",
         subtitle: [
           academicYear,
           collegeName,
           courseName,
           branchName,
-          scope.batch ?? "All batches",
+          scope.batch ? `Batch ${scope.batch}` : "All batches",
+          sectionDisplay,
         ].join(" · "),
       });
       return;
     }
+
     const collegeCourses = (masters?.courses ?? []).filter((course) =>
-      rows.some(
-        (row) =>
-          row.courseId === course.id &&
-          (scope.college == null || row.collegeId === scope.college),
-      ),
+      scope.college == null || course.collegeId === scope.college,
     );
     const content = collegeCourses
-      .map(
-        (course) =>
-          `<h2 class="course-title">${escapeHtml(course.name)}</h2>${buildCoursePrintHtml(scope.college ?? null, course.id, scope.branch ?? null, scope.batch ?? null)}`,
-      )
+      .map((course) => {
+        const html = buildCoursePrintHtml(
+          scope.college ?? null,
+          course.id,
+          scope.branch ?? null,
+          scope.batch ?? null,
+          activeSection,
+        );
+        if (!html) return "";
+        return `<h2 class="course-title">${escapeHtml(course.name)}</h2>${html}`;
+      })
+      .filter(Boolean)
       .join("");
+
     if (!content) return;
 
     printHtml(content, {
@@ -448,13 +832,20 @@ function DepartmentTimetableReport() {
         academicYear,
         scopeName(scope.college ?? null, masters?.colleges ?? [], "All colleges"),
         scopeName(scope.branch ?? null, masters?.branches ?? [], "All branches"),
-        scope.batch ?? "All batches",
+        scope.batch ? `Batch ${scope.batch}` : "All batches",
       ].join(" · "),
     });
   }
 
-  function renderTimetableMatrix(batch: string) {
-    const batchRows = timetableRows.filter((row) => row.batch === batch);
+  function renderTimetableMatrix(schedule: ScheduleGroup, branchId: number) {
+    const batchRows = rows.filter(
+      (row) =>
+        row.branchId === branchId &&
+        row.batch === schedule.batch &&
+        (schedule.section == null
+          ? true
+          : cleanSectionCode(row.section) === schedule.section),
+    );
     const slotKey = (row: TimetableReportRow) =>
       String(
         row.slotOrder ??
@@ -476,30 +867,43 @@ function DepartmentTimetableReport() {
       startTime: period.startTime ?? "",
       endTime: period.endTime ?? "",
     });
+    const elementKey = `${branchId}-${schedule.key}`;
+
     return (
       <div
-        key={batch}
+        key={elementKey}
         ref={(element) => {
-          batchRefs.current[batch] = element;
+          batchRefs.current[elementKey] = element;
         }}
         className="space-y-1.5"
       >
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold text-navy-900">Batch {batch}</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-navy-900">
+              Batch {schedule.displayBatch}
+            </h4>
+            {schedule.displaySection ? (
+              <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 border border-sky-200">
+                {schedule.displaySection}
+              </span>
+            ) : null}
+          </div>
           <button
             type="button"
-            aria-label={`Print batch ${batch}`}
-            title={`Print batch ${batch}`}
-            className="print:hidden inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100"
+            aria-label={`Print ${schedule.title}`}
+            title={`Print ${schedule.title}`}
+            className="print:hidden inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100 transition-colors"
             onClick={() => {
-              const element = batchRefs.current[batch];
+              const element = batchRefs.current[elementKey];
               if (element)
                 printElement(element, {
-                  title: "Batch timetable report",
-                  subtitle: [academicYear, batch].join(" · "),
+                  title: "Department Timetable Report",
+                  subtitle: [academicYear, schedule.title].join(" · "),
                 });
             }}
-          ><Printer className="h-3.5 w-3.5" /></button>
+          >
+            <Printer className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[980px] table-fixed border-collapse text-sm">
@@ -620,8 +1024,9 @@ function DepartmentTimetableReport() {
 
   return (
     <div ref={reportRef} className="space-y-4 print:text-black">
-      <div className="flex flex-wrap items-end gap-3 print:hidden">
-        <label className="text-sm text-slate-600">
+      {/* Filters Bar */}
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-white p-3.5 shadow-sm print:hidden">
+        <label className="text-xs font-medium text-slate-600">
           Academic Year
           <select
             value={academicYear}
@@ -630,28 +1035,35 @@ function DepartmentTimetableReport() {
               setSelectedCollege(null);
               setSelectedCourse(null);
               setSelectedBranch(null);
+              setSelectedBatch(null);
+              setSelectedSection(null);
             }}
-            className="mt-1 block h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
           >
             <option value="">Select academic year</option>
             {masters?.academicYears.map((item) => (
-              <option key={item.label}>{item.label}</option>
+              <option key={item.label} value={item.label}>
+                {item.label}
+              </option>
             ))}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-xs font-medium text-slate-600">
           College
           <select
             value={selectedCollege ?? ""}
             onChange={(event) => {
-              setSelectedCollege(
-                event.target.value ? Number(event.target.value) : null,
-              );
+              const val = event.target.value ? Number(event.target.value) : null;
+              setSelectedCollege(val);
               setSelectedCourse(null);
               setSelectedBranch(null);
               setSelectedBatch(null);
+              setSelectedSection(null);
+              if (val != null) {
+                setExpandedCollegeIds((prev) => new Set(prev).add(val));
+              }
             }}
-            className="mt-1 block h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
           >
             <option value="">All colleges</option>
             {masters?.colleges.map((item) => (
@@ -661,291 +1073,456 @@ function DepartmentTimetableReport() {
             ))}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-xs font-medium text-slate-600">
           Course
           <select
             value={selectedCourse ?? ""}
             onChange={(event) => {
-              setSelectedCourse(
-                event.target.value ? Number(event.target.value) : null,
-              );
+              const val = event.target.value ? Number(event.target.value) : null;
+              setSelectedCourse(val);
               setSelectedBranch(null);
               setSelectedBatch(null);
+              setSelectedSection(null);
+              if (val != null) {
+                setExpandedCourseIds((prev) => new Set(prev).add(val));
+                const c = masters?.courses.find((course) => course.id === val);
+                if (c) {
+                  setExpandedCollegeIds((prev) => new Set(prev).add(c.collegeId));
+                }
+              }
             }}
-            className="mt-1 block h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
           >
             <option value="">All courses</option>
-            {courses.map((item) => (
+            {filterCourses.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-xs font-medium text-slate-600">
           Branch
           <select
             value={selectedBranch ?? ""}
             onChange={(event) => {
-              setSelectedBranch(
-                event.target.value ? Number(event.target.value) : null,
-              );
+              const val = event.target.value ? Number(event.target.value) : null;
+              setSelectedBranch(val);
               setSelectedBatch(null);
+              setSelectedSection(null);
+              if (val != null) {
+                setExpandedBranchIds((prev) => new Set(prev).add(val));
+                const b = masters?.branches.find((br) => br.id === val);
+                if (b) {
+                  setExpandedCourseIds((prev) => new Set(prev).add(b.courseId));
+                  const c = masters?.courses.find((course) => course.id === b.courseId);
+                  if (c) {
+                    setExpandedCollegeIds((prev) => new Set(prev).add(c.collegeId));
+                  }
+                }
+              }
             }}
-            className="mt-1 block h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
           >
             <option value="">All branches</option>
-            {branches.map((item) => (
+            {filterBranches.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-xs font-medium text-slate-600">
           Batch
           <select
             value={selectedBatch ?? ""}
-            onChange={(event) => setSelectedBatch(event.target.value || null)}
-            className="mt-1 block h-9 rounded-md border border-border bg-white px-2 text-sm"
+            onChange={(event) => {
+              setSelectedBatch(event.target.value || null);
+              setSelectedSection(null);
+            }}
+            className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
           >
             <option value="">All batches</option>
-            {batches.map((batch) => (
-              <option key={batch}>{batch}</option>
+            {filterBatches.map((batch) => (
+              <option key={batch} value={batch}>
+                {batch}
+              </option>
             ))}
           </select>
         </label>
-        <Button size="sm" variant="secondary" onClick={printSelectedTables}>
-          <Printer className="mr-1 h-4 w-4" />
-          Print selected tables
-        </Button>
+        {selectedBranch != null && selectedBranchHasSections && availableBranchSections.length > 0 ? (
+          <label className="text-xs font-medium text-slate-600">
+            Section
+            <select
+              value={selectedSection ?? ""}
+              onChange={(event) => setSelectedSection(event.target.value || null)}
+              className="mt-1 block h-9 rounded-md border border-border bg-white px-2.5 text-xs font-normal text-slate-900 shadow-sm focus:border-navy-600 focus:outline-none focus:ring-1 focus:ring-navy-600"
+            >
+              <option value="">All sections ({availableBranchSections.length})</option>
+              {availableBranchSections.map((sec) => (
+                <option key={sec} value={sec}>
+                  Section {sec}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={printSelectedTables}>
+            <Printer className="mr-1 h-3.5 w-3.5" />
+            Print selected tables
+          </Button>
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleResetFilters}
+              className="border border-slate-300 text-slate-600 hover:text-navy-900"
+            >
+              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+              Reset filters
+            </Button>
+          )}
+        </div>
       </div>
+
       {!academicYear ? (
         <EmptyState
           title="Select an academic year"
           description="Choose an academic year to view colleges and their timetable coverage."
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">College</th>
-                <th className="px-3 py-3 print:hidden">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+            <span>
+              Showing {displayedColleges.length} {displayedColleges.length === 1 ? "college" : "colleges"}
+              {selectedCollege != null ? " (filtered)" : ""}
+            </span>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="text-xs text-navy-700 hover:underline inline-flex items-center gap-1"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border bg-white">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <td
-                    colSpan={2}
-                    className="px-4 py-6 text-center text-slate-500"
-                  >
-                    Loading colleges...
-                  </td>
+                  <th className="px-4 py-3">College</th>
+                  <th className="px-3 py-3 text-right print:hidden">Action</th>
                 </tr>
-              ) : (
-                colleges.map((college) => (
-                  <Fragment key={college.id}>
-                    <tr
-                      className="cursor-pointer border-t border-border hover:bg-slate-50"
-                      onClick={() => {
-                        setSelectedCollege(
-                          selectedCollege === college.id ? null : college.id,
-                        );
-                        setSelectedCourse(null);
-                        setSelectedBranch(null);
-                      }}
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={2}
+                      className="px-4 py-6 text-center text-slate-500"
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 font-medium text-navy-900">
-                          <ChevronRight
-                            className={`h-4 w-4 transition-transform ${selectedCollege === college.id ? "rotate-90" : ""}`}
-                          />
-                          {college.name}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 print:hidden">
-                        <button
-                          type="button"
-                          aria-label={`Print ${college.name} timetable`}
-                          title={`Print ${college.name} timetable`}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            printScoped({ college: college.id });
-                          }}
+                      Loading colleges and schedules...
+                    </td>
+                  </tr>
+                ) : (
+                  displayedColleges.map((college) => {
+                    const isCollegeOpen = expandedCollegeIds.has(college.id);
+                    const collegeCourses = getCollegeCourses(college.id);
+                    const collegeRows = rows.filter((r) => r.collegeId === college.id);
+                    const collegeScheduleCount = new Set(
+                      collegeRows.map((r) => `${r.branchId}-${r.batch}-${r.section ?? ""}`),
+                    ).size;
+                    const hasCollegeRows = collegeRows.length > 0;
+
+                    return (
+                      <Fragment key={college.id}>
+                        <tr
+                          className="cursor-pointer border-t border-border hover:bg-slate-50/80 transition-colors"
+                          onClick={() => toggleCollege(college.id)}
                         >
-                          <Printer className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                    {selectedCollege === college.id ? (
-                      <tr>
-                        <td colSpan={2} className="bg-slate-50 px-6 py-4">
-                          <div className="space-y-3">
-                            <div className="text-xs font-semibold uppercase text-slate-500">
-                              Courses
-                            </div>
-                            {courses.map((course) => (
-                              <div
-                                key={course.id}
-                                className="overflow-hidden rounded-md border border-border bg-white"
-                              >
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 px-4 py-3 text-left font-medium text-navy-900 hover:bg-slate-50"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSelectedCourse(
-                                      selectedCourse === course.id
-                                        ? null
-                                        : course.id,
-                                    );
-                                    setSelectedBranch(null);
-                                  }}
-                                >
-                                  <ChevronRight
-                                    className={`h-4 w-4 transition-transform ${selectedCourse === course.id ? "rotate-90" : ""}`}
-                                  />
-                                  {course.name}
-                                  <span
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-label={`Print ${course.name} timetable`}
-                                    title={`Print ${course.name} timetable`}
-                                    className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100 print:hidden"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      printScoped({
-                                        college: selectedCollege,
-                                        course: course.id,
-                                      });
-                                    }}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        printScoped({
-                                          college: selectedCollege,
-                                          course: course.id,
-                                        });
-                                      }
-                                    }}
-                                  >
-                                    <Printer className="h-3.5 w-3.5" />
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 font-medium text-navy-900">
+                                <ChevronRight
+                                  className={`h-4 w-4 text-slate-400 transition-transform ${isCollegeOpen ? "rotate-90 text-navy-900" : ""}`}
+                                />
+                                <span>{college.name}</span>
+                                {college.code ? (
+                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-mono text-slate-600">
+                                    {college.code}
                                   </span>
-                                </button>
-                                {selectedCourse === course.id ? (
-                                  <div className="border-t border-border px-4 py-3">
-                                    <div className="mb-2 text-xs font-semibold uppercase text-slate-500">
-                                      Branches
-                                    </div>
-                                    <div className="overflow-hidden rounded-md border border-border bg-white">
-                                      <table className="w-full text-left text-xs">
-                                        <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
-                                          <tr>
-                                            <th className="px-3 py-2">
-                                              Branch
-                                            </th>
-                                            <th className="px-3 py-2 text-center">
-                                              Configured
-                                            </th>
-                                            <th className="px-3 py-2 text-center">
-                                              Not configured
-                                            </th>
-                                            <th className="px-3 py-2 text-center print:hidden">
-                                              Action
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {branchStats.map(
-                                            ({
-                                              branch,
-                                              configured,
-                                              notConfigured,
-                                            }) => (
-                                              <tr
-                                                key={branch.id}
-                                                className="cursor-pointer border-t border-border hover:bg-slate-50"
-                                                onClick={(event) => {
-                                                  event.stopPropagation();
-                                                  setSelectedBranch(
-                                                    selectedBranch === branch.id
-                                                      ? null
-                                                      : branch.id,
-                                                  );
-                                                }}
-                                              >
-                                                <td className="px-3 py-2 font-medium text-navy-900">
-                                                  <span className="flex items-center gap-2">
-                                                    <ChevronRight
-                                                      className={`h-3.5 w-3.5 transition-transform ${selectedBranch === branch.id ? "rotate-90" : ""}`}
-                                                    />
-                                                    {branch.name}
-                                                  </span>
-                                                </td>
-                                                <td className="px-3 py-2 text-center text-emerald-700">
-                                                  {configured}
-                                                </td>
-                                                <td className="px-3 py-2 text-center text-rose-700">
-                                                  {notConfigured}
-                                                </td>
-                                                <td className="px-3 py-2 text-center print:hidden">
-                                                  <button
-                                                    type="button"
-                                                    aria-label={`Print ${branch.name} timetable`}
-                                                    title={`Print ${branch.name} timetable`}
-                                                    className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100"
-                                                    onClick={(event) => {
-                                                      event.stopPropagation();
-                                                      printScoped({
-                                                        college: selectedCollege,
-                                                        course: selectedCourse,
-                                                        branch: branch.id,
-                                                      });
-                                                    }}
-                                                  >
-                                                    <Printer className="h-3.5 w-3.5" />
-                                                  </button>
-                                                </td>
-                                              </tr>
-                                            ),
-                                          )}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                    {selectedBranch === null ? null : (
-                                      <div className="mt-3 space-y-4">
-                                        {timetableBatches.map((batch) =>
-                                          renderTimetableMatrix(batch),
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
                                 ) : null}
                               </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                ))
-              )}
-              {!loading && colleges.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={2}
-                    className="px-4 py-6 text-center text-slate-500"
-                  >
-                    No timetable data found for this academic year.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-500">
+                                  {collegeCourses.length} {collegeCourses.length === 1 ? "course" : "courses"}
+                                </span>
+                                {collegeScheduleCount > 0 ? (
+                                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
+                                    {collegeScheduleCount} {collegeScheduleCount === 1 ? "schedule" : "schedules"} active
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                                    No published schedules
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-right print:hidden">
+                            <button
+                              type="button"
+                              aria-label={`Print ${college.name} timetable`}
+                              title={hasCollegeRows ? `Print ${college.name} timetable` : `No timetables published for ${college.name}`}
+                              disabled={!hasCollegeRows}
+                              className={cn(
+                                "inline-flex h-7 w-7 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100 transition-colors",
+                                !hasCollegeRows && "opacity-30 cursor-not-allowed hover:bg-transparent",
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (hasCollegeRows) {
+                                  printScoped({ college: college.id });
+                                }
+                              }}
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+
+                        {isCollegeOpen ? (
+                          <tr>
+                            <td colSpan={2} className="bg-slate-50/70 px-6 py-4">
+                              <div className="space-y-3">
+                                <div className="text-xs font-semibold uppercase text-slate-500">
+                                  Courses ({collegeCourses.length})
+                                </div>
+                                {collegeCourses.length === 0 ? (
+                                  <div className="rounded border border-dashed border-slate-200 bg-white p-4 text-center text-xs text-slate-500">
+                                    No courses found for this college.
+                                  </div>
+                                ) : (
+                                  collegeCourses.map((course) => {
+                                    const isCourseOpen = expandedCourseIds.has(course.id);
+                                    const courseBranches = getCourseBranches(course.id);
+                                    const courseRows = rows.filter((r) => r.courseId === course.id);
+                                    const hasCourseRows = courseRows.length > 0;
+
+                                    return (
+                                      <div
+                                        key={course.id}
+                                        className="overflow-hidden rounded-md border border-border bg-white shadow-sm"
+                                      >
+                                        <div
+                                          className="flex w-full items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                                          onClick={() => toggleCourse(course.id)}
+                                        >
+                                          <div className="flex items-center gap-2 font-medium text-navy-900">
+                                            <ChevronRight
+                                              className={`h-4 w-4 text-slate-400 transition-transform ${isCourseOpen ? "rotate-90 text-navy-900" : ""}`}
+                                            />
+                                            <span>{course.name}</span>
+                                            {course.code ? (
+                                              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-mono text-slate-600">
+                                                {course.code}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs text-slate-500">
+                                              {courseBranches.length} {courseBranches.length === 1 ? "branch" : "branches"}
+                                            </span>
+                                            {hasCourseRows ? (
+                                              <span className="inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+                                                Active
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                                                Not configured
+                                              </span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              aria-label={`Print ${course.name} timetable`}
+                                              title={hasCourseRows ? `Print ${course.name} timetable` : `No timetables published for ${course.name}`}
+                                              disabled={!hasCourseRows}
+                                              className={cn(
+                                                "ml-2 inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100 print:hidden",
+                                                !hasCourseRows && "opacity-30 cursor-not-allowed hover:bg-transparent",
+                                              )}
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                if (hasCourseRows) {
+                                                  printScoped({
+                                                    college: college.id,
+                                                    course: course.id,
+                                                  });
+                                                }
+                                              }}
+                                            >
+                                              <Printer className="h-3.5 w-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {isCourseOpen ? (
+                                          <div className="border-t border-border px-4 py-3 bg-slate-50/40">
+                                            <div className="mb-2 text-xs font-semibold uppercase text-slate-500">
+                                              Branches ({courseBranches.length})
+                                            </div>
+                                            {courseBranches.length === 0 ? (
+                                              <div className="rounded border border-dashed border-slate-200 bg-white p-3 text-center text-xs text-slate-500">
+                                                No branches found for this course.
+                                              </div>
+                                            ) : (
+                                              <div className="overflow-hidden rounded-md border border-border bg-white">
+                                                <table className="w-full text-left text-xs">
+                                                  <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
+                                                    <tr>
+                                                      <th className="px-3 py-2">
+                                                        Branch
+                                                      </th>
+                                                      <th className="px-3 py-2 text-center">
+                                                        Configured
+                                                      </th>
+                                                      <th className="px-3 py-2 text-center">
+                                                        Not configured
+                                                      </th>
+                                                      <th className="px-3 py-2 text-center print:hidden">
+                                                        Action
+                                                      </th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {courseBranches.map((branch) => {
+                                                      const stats = getBranchStats(branch.id);
+                                                      const isBranchOpen = expandedBranchIds.has(branch.id);
+                                                      const branchSchedules = getBranchSchedules(branch.id);
+                                                      const hasBranchRows = rows.some((r) => r.branchId === branch.id);
+
+                                                      return (
+                                                        <Fragment key={branch.id}>
+                                                          <tr
+                                                            className="cursor-pointer border-t border-border hover:bg-slate-50"
+                                                            onClick={() => toggleBranch(branch.id)}
+                                                          >
+                                                            <td className="px-3 py-2 font-medium text-navy-900">
+                                                              <span className="flex items-center gap-2">
+                                                                <ChevronRight
+                                                                  className={`h-3.5 w-3.5 transition-transform ${isBranchOpen ? "rotate-90 text-navy-900" : "text-slate-400"}`}
+                                                                />
+                                                                {branch.name}
+                                                                {branch.code ? (
+                                                                  <span className="rounded bg-slate-100 px-1 text-[9px] font-mono text-slate-500">
+                                                                    {branch.code}
+                                                                  </span>
+                                                                ) : null}
+                                                              </span>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-center font-semibold text-emerald-700">
+                                                              {stats.configured}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-center text-slate-500">
+                                                              {stats.notConfigured}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-center print:hidden">
+                                                              <button
+                                                                type="button"
+                                                                aria-label={`Print ${branch.name} timetable`}
+                                                                title={hasBranchRows ? `Print ${branch.name} timetable` : `No timetables published for ${branch.name}`}
+                                                                disabled={!hasBranchRows}
+                                                                className={cn(
+                                                                  "inline-flex h-6 w-6 items-center justify-center rounded border border-border text-navy-800 hover:bg-slate-100",
+                                                                  !hasBranchRows && "opacity-30 cursor-not-allowed hover:bg-transparent",
+                                                                )}
+                                                                onClick={(event) => {
+                                                                  event.stopPropagation();
+                                                                  if (hasBranchRows) {
+                                                                    printScoped({
+                                                                      college: college.id,
+                                                                      course: course.id,
+                                                                      branch: branch.id,
+                                                                    });
+                                                                  }
+                                                                }}
+                                                              >
+                                                                <Printer className="h-3.5 w-3.5" />
+                                                              </button>
+                                                            </td>
+                                                          </tr>
+                                                          {isBranchOpen ? (
+                                                            <tr>
+                                                              <td colSpan={4} className="border-t border-border bg-slate-50/50 p-4">
+                                                                {branchSchedules.length > 0 ? (
+                                                                  <div className="space-y-4">
+                                                                    {branchSchedules.map((schedule) =>
+                                                                      renderTimetableMatrix(schedule, branch.id),
+                                                                    )}
+                                                                  </div>
+                                                                ) : (
+                                                                  <div className="rounded-lg border border-dashed border-slate-200 bg-white p-5 text-center">
+                                                                    <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                                                                      <Calendar className="h-4 w-4" />
+                                                                    </div>
+                                                                    <p className="text-xs font-semibold text-navy-900">
+                                                                      No Timetable Published
+                                                                    </p>
+                                                                    <p className="mt-1 text-[11px] text-slate-500 max-w-sm mx-auto">
+                                                                      No timetable schedules have been published for {branch.name}
+                                                                      {selectedBatch ? ` (Batch ${selectedBatch})` : ""}
+                                                                      {selectedSection ? ` (Section ${cleanSectionCode(selectedSection)})` : ""} for academic year {academicYear}.
+                                                                    </p>
+                                                                    <div className="mt-2.5">
+                                                                      <Link
+                                                                        href={`/timetables?collegeId=${college.id}&branchId=${branch.id}&academicYear=${encodeURIComponent(academicYear)}`}
+                                                                        className="inline-flex items-center gap-1 rounded bg-navy-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-navy-900 transition-colors shadow-sm"
+                                                                      >
+                                                                        Open Timetable Planner
+                                                                      </Link>
+                                                                    </div>
+                                                                  </div>
+                                                                )}
+                                                              </td>
+                                                            </tr>
+                                                          ) : null}
+                                                        </Fragment>
+                                                      );
+                                                    })}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+                {!loading && displayedColleges.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={2}
+                      className="px-4 py-6 text-center text-slate-500"
+                    >
+                      No colleges found matching the selected filter.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

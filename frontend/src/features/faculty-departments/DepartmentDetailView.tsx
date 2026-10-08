@@ -82,14 +82,9 @@ export function DepartmentDetailView({ departmentId }: Props) {
     return detail.faculty.filter((row) => {
       if (linkFilter !== "all" && row.linkStatus !== linkFilter) return false;
       if (!search) return true;
-      return (
-        row.name.toLowerCase().includes(search) ||
-        row.code.toLowerCase().includes(search) ||
-        row.hrmsEmployeeId.toLowerCase().includes(search) ||
-        row.designation.toLowerCase().includes(search) ||
-        row.employeeGroup.toLowerCase().includes(search) ||
-        row.division.toLowerCase().includes(search)
-      );
+      const tokens = search.toLowerCase().split(/\s+/).filter(Boolean);
+      const target = `${row.name || ""} ${row.code || ""} ${row.hrmsEmployeeId || ""} ${row.designation || ""} ${row.employeeGroup || ""} ${row.division || ""}`.toLowerCase();
+      return tokens.every((token) => target.includes(token));
     });
   }, [detail, search, linkFilter]);
 
