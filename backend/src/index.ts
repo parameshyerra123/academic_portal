@@ -32,6 +32,7 @@ import { requestWorkflowsRouter } from "./routes/request-workflows.route.js";
 import { facultySubstitutionRouter } from "./routes/faculty-substitution.route.js";
 import { mentoringRouter } from "./routes/mentoring.route.js";
 import { todayTimetableRouter } from "./routes/today-timetable.route.js";
+import { internalMarksRouter } from "./routes/internal-marks.route.js";
 
 const app = express();
 
@@ -87,6 +88,7 @@ app.use("/api/results", resultsRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/roles", rolesRouter);
 app.use("/api/permissions", permissionsRouter);
+app.use("/api/internal-marks", internalMarksRouter);
 
 app.use(
   (

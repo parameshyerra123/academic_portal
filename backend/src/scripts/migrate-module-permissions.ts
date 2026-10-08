@@ -249,6 +249,30 @@ const PERMISSION_META: Record<
     displayName: "Escalate Complaints",
     description: "Escalate complaints for higher-level review",
   },
+  "internal_marks.view": {
+    module: "internal_marks",
+    action: "view",
+    displayName: "View Internal Marks",
+    description: "View subjects, assigned faculty, access status, and internal marks",
+  },
+  "internal_marks.edit": {
+    module: "internal_marks",
+    action: "edit",
+    displayName: "Edit Internal Marks & Access",
+    description: "Manage internal marks upload access, enter student marks, submit, and approve submissions",
+  },
+  "internal_marks_mgmt.view": {
+    module: "internal_marks_mgmt",
+    action: "view",
+    displayName: "View Internal Marks Management",
+    description: "View subject hierarchy, upload access rules, approval workflows, and audit logs",
+  },
+  "internal_marks_mgmt.edit": {
+    module: "internal_marks_mgmt",
+    action: "edit",
+    displayName: "Edit Internal Marks Management & Access",
+    description: "Configure upload access rules, approval workflow levels, and system settings",
+  },
 };
 
 async function main() {

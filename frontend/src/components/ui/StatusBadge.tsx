@@ -38,6 +38,9 @@ const styles: Record<string, string> = {
   Rejected: "bg-red-50 text-critical",
   Returned: "bg-amber-50 text-warning",
   Cancelled: "bg-slate-100 text-slate-700",
+  "Forwarded To Ems": "bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200",
+  "Ems Sync Failed": "bg-red-50 text-red-700 font-semibold border border-red-200",
+  Synced: "bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200",
 };
 
 function titleCase(value: string) {

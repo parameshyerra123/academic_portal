@@ -91,7 +91,7 @@ export async function queryStudent<T = mysql.RowDataPacket[]>(
 }
 
 export async function executeStudent(sql: string, params: unknown[] = []) {
-  const [result] = await getStudentPool().execute(sql, params);
+  const [result] = await getStudentPool().execute(sql, params as any[]);
   return result as mysql.ResultSetHeader;
 }
 
@@ -99,8 +99,13 @@ export async function queryExam<T = mysql.RowDataPacket[]>(
   sql: string,
   params: unknown[] = [],
 ) {
-  const [rows] = await getExamPool().query(sql, params);
+  const [rows] = await getExamPool().query(sql, params as any[]);
   return rows as T;
+}
+
+export async function executeExam(sql: string, params: unknown[] = []) {
+  const [result] = await getExamPool().execute(sql, params as any[]);
+  return result as mysql.ResultSetHeader;
 }
 
 export async function queryAcademic<T = mysql.RowDataPacket[]>(
@@ -111,7 +116,7 @@ export async function queryAcademic<T = mysql.RowDataPacket[]>(
   if (!pool) {
     throw new Error("Academic Portal database is not configured");
   }
-  const [rows] = await pool.query(sql, params);
+  const [rows] = await pool.query(sql, params as any[]);
   return rows as T;
 }
 
@@ -120,7 +125,7 @@ export async function executeAcademic(sql: string, params: unknown[] = []) {
   if (!pool) {
     throw new Error("Academic Portal database is not configured");
   }
-  const [result] = await pool.execute(sql, params);
+  const [result] = await pool.execute(sql, params as any[]);
   return result as mysql.ResultSetHeader;
 }
 

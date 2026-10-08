@@ -43,6 +43,10 @@ export const PERMISSIONS = [
   "mentoring.intervene",
   "mentoring.case_manage",
   "mentoring.escalate",
+  "internal_marks.view",
+  "internal_marks.edit",
+  "internal_marks_mgmt.view",
+  "internal_marks_mgmt.edit",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number] | (string & {});
@@ -155,6 +159,10 @@ const ROLE_PERMISSIONS_BASE: Record<RoleKey, Permission[]> = {
     "request.create",
     "request.approve",
     ...MENTORING_FULL,
+    "internal_marks.view",
+    "internal_marks.edit",
+    "internal_marks_mgmt.view",
+    "internal_marks_mgmt.edit",
   ],
 
   vice_principal: [
@@ -186,6 +194,10 @@ const ROLE_PERMISSIONS_BASE: Record<RoleKey, Permission[]> = {
     "request.approve",
     "request.workflow.manage",
     ...MENTORING_FULL,
+    "internal_marks.view",
+    "internal_marks.edit",
+    "internal_marks_mgmt.view",
+    "internal_marks_mgmt.edit",
   ],
 
   hod: [
@@ -209,6 +221,10 @@ const ROLE_PERMISSIONS_BASE: Record<RoleKey, Permission[]> = {
     "request.create",
     "request.approve",
     ...MENTORING_FULL,
+    "internal_marks.view",
+    "internal_marks.edit",
+    "internal_marks_mgmt.view",
+    "internal_marks_mgmt.edit",
   ],
 
   /** Teaching staff — personal dashboard, own timetable, own attendance, requests, catalog metadata. */
@@ -223,6 +239,8 @@ const ROLE_PERMISSIONS_BASE: Record<RoleKey, Permission[]> = {
     "request.view",
     "request.create",
     ...MENTORING_MENTOR,
+    "internal_marks.view",
+    "internal_marks.edit",
   ],
 };
 

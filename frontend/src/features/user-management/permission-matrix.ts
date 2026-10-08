@@ -285,6 +285,32 @@ export const PERMISSION_PRESENTATION: Record<
     kind: "write",
     sensitive: true,
   },
+  "internal_marks.view": {
+    key: "internal_marks.view",
+    label: "View Internal Marks Entry",
+    description: "View assigned subjects, student marks, and pending internal marks submissions.",
+    kind: "read",
+  },
+  "internal_marks.edit": {
+    key: "internal_marks.edit",
+    label: "Edit & Submit Internal Marks",
+    description: "Enter student internal marks, save drafts, resubmit returned marks, and process approvals.",
+    kind: "write",
+    sensitive: true,
+  },
+  "internal_marks_mgmt.view": {
+    key: "internal_marks_mgmt.view",
+    label: "View Internal Marks Management",
+    description: "View subject hierarchy, internal marks access status, access rules, approval workflows, and audit logs.",
+    kind: "read",
+  },
+  "internal_marks_mgmt.edit": {
+    key: "internal_marks_mgmt.edit",
+    label: "Edit Internal Marks Access & Configs",
+    description: "Configure college/course/branch/faculty upload access rules, approval workflow levels, and system settings.",
+    kind: "write",
+    sensitive: true,
+  },
 };
 
 /**
@@ -345,6 +371,18 @@ export const PERMISSION_MATRIX_MODULES: MatrixModuleDef[] = [
     label: "Attendance Analytics",
     href: "/attendance-analytics",
     permissions: [asDef("attendance_analytics.view")],
+  },
+  {
+    group: "Examinations",
+    label: "Internal Marks Management",
+    href: "/internal-marks-management",
+    permissions: [asDef("internal_marks_mgmt.view"), asDef("internal_marks_mgmt.edit")],
+  },
+  {
+    group: "Examinations",
+    label: "Internal Marks",
+    href: "/internal-marks",
+    permissions: [asDef("internal_marks.view"), asDef("internal_marks.edit")],
   },
   {
     group: "System",

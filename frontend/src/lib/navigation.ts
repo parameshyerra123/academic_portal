@@ -131,6 +131,18 @@ export const NAV_GROUPS: NavGroup[] = [
         permissions: ["examinations.view"],
       },
       {
+        label: "Internal Marks Mgmt",
+        href: "/internal-marks-management",
+        icon: FileBarChart2,
+        permissions: ["internal_marks_mgmt.view", "internal_marks_mgmt.edit"],
+      },
+      {
+        label: "Internal Marks",
+        href: "/internal-marks",
+        icon: ClipboardCheck,
+        permissions: ["internal_marks.view", "internal_marks.edit"],
+      },
+      {
         label: "Results",
         href: "/results",
         icon: Gauge,
@@ -229,6 +241,7 @@ export const TEACHING_STAFF_NAV_HREFS = new Set([
   "/dashboard",
   "/my-timetable",
   "/attendance-posting",
+  "/internal-marks",
   "/requests",
   "/mentoring-risks",
 ]);

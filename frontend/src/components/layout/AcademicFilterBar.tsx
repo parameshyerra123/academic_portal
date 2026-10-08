@@ -30,6 +30,8 @@ const HIDDEN_ON = [
   "/my-timetable",
   "/requests",
   "/attendance-posting",
+  "/internal-marks-management",
+  "/internal-marks",
 ];
 
 type Props = {

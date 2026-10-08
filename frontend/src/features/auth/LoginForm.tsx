@@ -47,9 +47,8 @@ export function LoginForm() {
 
   useEffect(() => {
     if (!hydrated || loading || !user) return;
-    const next = searchParams.get("next") || "/dashboard";
-    router.replace(next.startsWith("/") ? next : "/dashboard");
-  }, [hydrated, loading, user, router, searchParams]);
+    router.replace("/dashboard");
+  }, [hydrated, loading, user, router]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -80,8 +79,7 @@ export function LoginForm() {
       }
 
       await refresh();
-      const next = searchParams.get("next") || "/dashboard";
-      router.replace(next.startsWith("/") ? next : "/dashboard");
+      router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
