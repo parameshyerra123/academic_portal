@@ -253,6 +253,18 @@ const PERMISSION_META: Record<
     displayName: "Escalate Complaints",
     description: "Escalate complaints for higher-level review",
   },
+  "internal_marks.view": {
+    module: "internal_marks",
+    action: "view",
+    displayName: "View Internal Marks",
+    description: "View subjects, assigned faculty, access status, and internal marks",
+  },
+  "internal_marks.edit": {
+    module: "internal_marks",
+    action: "edit",
+    displayName: "Edit Internal Marks & Access",
+    description: "Manage internal marks upload access, enter student marks, submit, and approve submissions",
+  },
 };
 
 async function columnExists(table: string, column: string) {

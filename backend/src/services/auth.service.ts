@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { env } from "../config/env.js";
 import { executeAcademic, getHrmsDb, queryAcademic } from "../db/pools.js";
 import { toMysqlUtcDateTime } from "../lib/mysql-datetime.js";
+import { ensureInternalMarksSchema } from "./internal-marks.service.js";
 
 /**
  * Authentication foundation
@@ -131,8 +132,10 @@ export async function ensureAuthSchema() {
           WHERE p.permission_key = 'today_timetable.view'
             AND r.role_key = 'staff'
         `);
+
+        await ensureInternalMarksSchema();
       } catch (err) {
-        console.warn("Could not ensure today_timetable permissions in database:", err);
+        console.warn("Could not ensure schema / permissions in database:", err);
       }
     })();
   }

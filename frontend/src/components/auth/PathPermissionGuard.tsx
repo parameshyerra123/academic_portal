@@ -45,6 +45,12 @@ function requiredPermissionsForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/attendance-analytics")) {
     return ["attendance_analytics.view", "attendance.view"];
   }
+  if (pathname.startsWith("/internal-marks-management")) {
+    return ["internal_marks_mgmt.view", "internal_marks_mgmt.edit"];
+  }
+  if (pathname.startsWith("/internal-marks")) {
+    return ["internal_marks.view", "internal_marks.edit"];
+  }
 
   return bestMatch?.permissions ?? null;
 }
