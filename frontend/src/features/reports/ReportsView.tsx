@@ -23,11 +23,14 @@ import {
   timingSlotDisplayLabel,
 } from "@/features/timetables/timing-slot-utils";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type ReportKey =
-  | "department-timetables"
   | "master-vs-changed"
+  | "subject-analytics"
+  | "staff-analytics"
+  | "change-audit"
+  | "department-timetables"
   | "staff-timetables"
   | "student-analytics";
 
@@ -39,29 +42,45 @@ type ReportDef = {
 
 const REPORT_TABS: ReportDef[] = [
   {
-    key: "department-timetables",
-    title: "Department-wise timetable reports",
-    permissions: ["timetable.view", "reports.view"],
-  },
-  {
     key: "master-vs-changed",
-    title: "Master vs Changed Timetable",
+    title: "Master vs Today Comparison",
     permissions: ["today_timetable.view", "timetable.view", "reports.view"],
   },
   {
+    key: "subject-analytics",
+    title: "Subject Analytics",
+    permissions: ["today_timetable.view", "timetable.view", "reports.view"],
+  },
+  {
+    key: "staff-analytics",
+    title: "Staff Analytics",
+    permissions: ["today_timetable.view", "workload.view", "reports.view"],
+  },
+  {
+    key: "change-audit",
+    title: "Change Audit Log",
+    permissions: ["today_timetable.view", "timetable.view", "reports.view"],
+  },
+  {
+    key: "department-timetables",
+    title: "Department-wise Timetables",
+    permissions: ["timetable.view", "reports.view"],
+  },
+  {
     key: "staff-timetables",
-    title: "Staff timetable reports",
+    title: "Staff Timetable Reports",
     permissions: ["workload.view", "reports.view"],
   },
   {
     key: "student-analytics",
-    title: "Student analytics reports",
+    title: "Student Analytics Reports",
     permissions: ["attendance_analytics.view", "reports.view"],
   },
 ];
 
 export function ReportsView() {
   const { hasAnyPermission } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab") as ReportKey | null;
 
@@ -78,15 +97,39 @@ export function ReportsView() {
     [hasAnyPermission],
   );
 
-  const activeTab =
-    visibleTabs.find((tab) => tab.key === selectedKey) ?? visibleTabs[0];
+  const activeKey =
+    selectedKey ?? (tabParam && visibleTabs.some((t) => t.key === tabParam) ? tabParam : visibleTabs[0]?.key);
+  const activeTab = visibleTabs.find((tab) => tab.key === activeKey) ?? visibleTabs[0];
+
+  const handleSelectTab = (key: ReportKey) => {
+    setSelectedKey(key);
+    router.push(`/reports?tab=${key}`, { scroll: false });
+  };
 
   function renderActiveReport() {
     if (!activeTab) return null;
+    const handleNavigate = (section: "variation" | "subjects" | "staff" | "audit") => {
+      const targetKey: ReportKey =
+        section === "variation"
+          ? "master-vs-changed"
+          : section === "subjects"
+            ? "subject-analytics"
+            : section === "staff"
+              ? "staff-analytics"
+              : "change-audit";
+      handleSelectTab(targetKey);
+    };
+
+    if (activeTab.key === "master-vs-changed")
+      return <MasterVsChangedReport activeSection="variation" onNavigateSection={handleNavigate} />;
+    if (activeTab.key === "subject-analytics")
+      return <MasterVsChangedReport activeSection="subjects" onNavigateSection={handleNavigate} />;
+    if (activeTab.key === "staff-analytics")
+      return <MasterVsChangedReport activeSection="staff" onNavigateSection={handleNavigate} />;
+    if (activeTab.key === "change-audit")
+      return <MasterVsChangedReport activeSection="audit" onNavigateSection={handleNavigate} />;
     if (activeTab.key === "department-timetables")
       return <DepartmentTimetableReport />;
-    if (activeTab.key === "master-vs-changed")
-      return <MasterVsChangedReport />;
     if (activeTab.key === "staff-timetables")
       return <StaffWorkloadView embedded />;
     return <AttendanceAnalyticsView embedded />;
@@ -101,28 +144,7 @@ export function ReportsView() {
         description="Live reports from the selected academic scope."
       />
 
-      {visibleTabs.length > 1 && (
-        <div className="mb-5 flex flex-wrap gap-2 border-b border-border/70 pb-3.5">
-          {visibleTabs.map((tab) => {
-            const isActive = activeTab?.key === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setSelectedKey(tab.key)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all shadow-xs",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-surface border border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                )}
-              >
-                {tab.title}
-              </button>
-            );
-          })}
-        </div>
-      )}
+
 
       {visibleTabs.length === 0 ? (
         <EmptyState

@@ -123,7 +123,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
           if (
             pathname === "/reports" &&
             key === "tab" &&
-            val === "department-timetables" &&
+            (val === "master-vs-changed" || val === "department-timetables") &&
             !currentVal
           ) {
             return;

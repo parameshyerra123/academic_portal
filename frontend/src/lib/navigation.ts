@@ -156,16 +156,34 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: FileBarChart2,
     items: [
       {
-        label: "Department Timetables",
-        href: "/reports?tab=department-timetables",
-        icon: CalendarDays,
-        permissions: ["timetable.view", "reports.view"],
-      },
-      {
         label: "Master vs Changed Timetable",
         href: "/reports?tab=master-vs-changed",
         icon: ArrowLeftRight,
         permissions: ["today_timetable.view", "timetable.view", "reports.view"],
+      },
+      {
+        label: "Subject Analytics",
+        href: "/reports?tab=subject-analytics",
+        icon: BookOpen,
+        permissions: ["today_timetable.view", "timetable.view", "reports.view"],
+      },
+      {
+        label: "Staff Analytics",
+        href: "/reports?tab=staff-analytics",
+        icon: Users,
+        permissions: ["today_timetable.view", "workload.view", "reports.view"],
+      },
+      {
+        label: "Change Audit Log",
+        href: "/reports?tab=change-audit",
+        icon: AlertTriangle,
+        permissions: ["today_timetable.view", "timetable.view", "reports.view"],
+      },
+      {
+        label: "Department Timetables",
+        href: "/reports?tab=department-timetables",
+        icon: CalendarDays,
+        permissions: ["timetable.view", "reports.view"],
       },
       {
         label: "Staff Timetable Reports",
@@ -284,7 +302,22 @@ export function navLabelForItem(item: NavItem, options?: { superAdminUser?: bool
   return item.label;
 }
 
-export function breadcrumbsForPath(pathname: string): BreadcrumbSegment[] {
+export function breadcrumbsForPath(
+  pathname: string,
+  searchParams?: { get: (key: string) => string | null } | null,
+): BreadcrumbSegment[] {
+  if (pathname === "/reports") {
+    const tab = searchParams?.get("tab") || "master-vs-changed";
+    for (const group of NAV_GROUPS) {
+      for (const item of group.items) {
+        if (item.href === `/reports?tab=${tab}`) {
+          return [{ label: "Reports", href: "/reports" }, { label: item.label }];
+        }
+      }
+    }
+    return [{ label: "Reports", href: "/reports" }, { label: "Master vs Changed Timetable" }];
+  }
+
   if (pathname.startsWith("/requests")) {
     const segments: BreadcrumbSegment[] = [{ label: "Requests", href: "/requests" }];
     if (pathname === "/requests") return segments;

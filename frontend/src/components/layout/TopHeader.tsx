@@ -1,8 +1,8 @@
 "use client";
 
-import { Bell, Menu, Sparkles } from "lucide-react";
+import { Bell, Menu } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { breadcrumbsForPath } from "@/lib/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isTeachingStaffOnly } from "@/lib/teaching-scope";
@@ -13,9 +13,10 @@ type Props = {
 
 export function TopHeader({ onMenuClick }: Props) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, authorization } = useAuth();
   const teachingStaffOnly = isTeachingStaffOnly(authorization);
-  const breadcrumbs = breadcrumbsForPath(pathname);
+  const breadcrumbs = breadcrumbsForPath(pathname, searchParams);
   const currentTitle = breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].label : "Staff Portal";
 
   return (
