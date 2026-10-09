@@ -350,7 +350,7 @@ export async function generateClassSessions(input: {
       ON s.id = COALESCE(e.timing_slot_id, e.period_slot_id)
     WHERE e.plan_id = ?
       AND (
-        (s.slot_type = 'CLASS' AND e.subject_id IS NOT NULL)
+        (s.slot_type = 'CLASS' AND (e.subject_id IS NOT NULL OR e.custom_label IS NOT NULL OR e.entry_type = 'other'))
         OR (e.faculty_staff_link_id IS NOT NULL)
       )
     `,
