@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { MultiSelectFilter } from "./MultiSelectFilter";
@@ -446,7 +447,11 @@ export function AttendanceCalendarView() {
           </div>
 
           {loading ? (
-            <div className="py-16 text-center text-sm text-slate-500">Loading calendar…</div>
+            <div className="mt-3 grid grid-cols-7 gap-2 portal-fade-in">
+              {Array.from({ length: 35 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 sm:h-20 w-full rounded-lg" variant="subtle" />
+              ))}
+            </div>
           ) : null}
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-4 text-sm text-critical">

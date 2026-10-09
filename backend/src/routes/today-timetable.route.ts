@@ -11,6 +11,7 @@ import {
   listDailyTimetableActivities,
   recordDailyTimetableChange,
   getMasterVsChangedTimetableReport,
+  declareDailyTimetableHoliday,
 } from "../services/today-timetable.service.js";
 
 export const todayTimetableRouter = Router();
@@ -210,6 +211,76 @@ todayTimetableRouter.post("/override", requirePermission("today_timetable.edit",
     }
 
     res.json(lastResult ?? { success: true });
+  } catch (error) {
+    sendAuthzError(res, error, next);
+  }
+});
+
+// POST /api/today-timetable/holiday
+todayTimetableRouter.post("/holiday", requirePermission("today_timetable.edit", "timetable.edit", "attendance_calendar.edit"), async (req: AuthedRequest, res, next) => {
+  try {
+    const body = req.body || {};
+    const timetableDate = str(body.date || body.timetableDate);
+    const title = str(body.title);
+
+    if (!timetableDate || !title) {
+      res.status(400).json({ message: "Date and holiday title are required." });
+      return;
+    }
+
+    // Role or Permission validation: users with today_timetable.edit or standard leadership roles
+    const hasEditPermission =
+      req.authz?.permissions?.includes("today_timetable.edit") ||
+      req.authz?.permissions?.includes("timetable.edit") ||
+      req.authz?.permissions?.includes("attendance_calendar.edit");
+    const userRoleKeys = (req.authz?.roleKeys ?? []).map((k) => k.toLowerCase().replace(/[\s-]/g, "_"));
+    const allowedRoles = ["super_admin", "superadmin", "principal", "vice_principal", "viceprincipal", "hod", "hods"];
+    const canChange = Boolean(hasEditPermission) || allowedRoles.some((role) => userRoleKeys.includes(role));
+    if (!canChange) {
+      res.status(403).json({
+        message: "You are not authorized to declare holidays. Access can be granted in User Management.",
+      });
+      return;
+    }
+
+    // Past date check:
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (timetableDate < todayStr) {
+      res.status(400).json({
+        message: "Past dates cannot be marked as holidays. Previous days are view-only.",
+      });
+      return;
+    }
+
+    const parseNumArray = (arr: unknown): number[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr.map((item) => Number(item)).filter((n) => Number.isFinite(n) && n > 0);
+    };
+
+    const parseStrArray = (arr: unknown): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr.map((item) => String(item).trim()).filter(Boolean);
+    };
+
+    const result = await declareDailyTimetableHoliday({
+      timetableDate,
+      academicYear: str(body.academicYear),
+      title,
+      remarks: str(body.remarks),
+      holidayMode: body.holidayMode === "SLOTS" ? "SLOTS" : "FULL_DAY",
+      slotIds: parseNumArray(body.slotIds),
+      collegeIds: parseNumArray(body.collegeIds),
+      courseIds: parseNumArray(body.courseIds),
+      branchIds: parseNumArray(body.branchIds),
+      years: parseNumArray(body.years),
+      semesters: parseNumArray(body.semesters),
+      sections: parseStrArray(body.sections),
+      actorUserId: req.authUser?.id,
+      actorName: req.authUser?.name || req.authUser?.username || "Authorized User",
+    });
+
+    res.json(result);
   } catch (error) {
     sendAuthzError(res, error, next);
   }

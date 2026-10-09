@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
@@ -386,7 +387,7 @@ export function TimingEditorDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
-            <p className="text-sm text-slate-500">Loading timings…</p>
+            <TableSkeleton columns={3} rows={5} showHeader={false} />
           ) : activeSlots.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-4 py-8 text-center">
               <p className="text-sm text-slate-600">No slots for this day.</p>

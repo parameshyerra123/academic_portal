@@ -5,7 +5,8 @@ import { RefreshCw, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -572,7 +573,7 @@ export function UserManagementView() {
       </FilterBar>
 
       {state.status === "loading" ? (
-        <LoadingAnimation label="Loading users…" />
+        <TableSkeleton columns={6} rows={7} showHeader showPagination />
       ) : null}
       {state.status === "error" ? (
         <Card>
@@ -1007,7 +1008,27 @@ function UserDetailModal(props: {
         ) : null
       }
     >
-      {props.loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
+      {props.loading ? (
+        <div className="space-y-4 py-2 portal-fade-in" aria-busy="true" aria-label="Loading user details…">
+          <div className="grid gap-4 xl:grid-cols-3">
+            <div className="rounded-xl border border-border bg-slate-50/50 p-4 space-y-3">
+              <Skeleton className="h-5 w-32 rounded" />
+              <Skeleton className="h-4 w-48 rounded" />
+              <Skeleton className="h-4 w-36 rounded" />
+            </div>
+            <div className="rounded-xl border border-border bg-slate-50/50 p-4 space-y-3">
+              <Skeleton className="h-5 w-32 rounded" />
+              <Skeleton className="h-4 w-48 rounded" />
+              <Skeleton className="h-4 w-36 rounded" />
+            </div>
+            <div className="rounded-xl border border-border bg-slate-50/50 p-4 space-y-3">
+              <Skeleton className="h-5 w-32 rounded" />
+              <Skeleton className="h-4 w-48 rounded" />
+              <Skeleton className="h-4 w-36 rounded" />
+            </div>
+          </div>
+        </div>
+      ) : null}
       {props.error ? <p className="mb-3 text-sm text-critical">{props.error}</p> : null}
       {localError ? <p className="mb-3 text-sm text-critical">{localError}</p> : null}
 

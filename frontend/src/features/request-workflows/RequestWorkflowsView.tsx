@@ -6,6 +6,8 @@ import { Plus, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -356,7 +358,7 @@ export function RequestWorkflowsView() {
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-slate-500">Loading workflow administration…</p>
+        <PageSkeleton showFilterBar={false} showStats statCardsCount={3} columns={4} rows={6} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_1fr]">
           <Card className="h-fit">
@@ -407,7 +409,15 @@ export function RequestWorkflowsView() {
             {!selectedType ? (
               <p className="text-sm text-slate-500">Select a request type to edit its workflow.</p>
             ) : loadingWorkflow ? (
-              <p className="text-sm text-slate-500">Loading workflow…</p>
+              <div className="space-y-3 p-2" aria-busy="true">
+                <Skeleton className="h-6 w-1/3 rounded" />
+                <Skeleton className="h-4 w-2/3 rounded" />
+                <div className="space-y-2 pt-2">
+                  <Skeleton className="h-14 w-full rounded-lg" />
+                  <Skeleton className="h-14 w-full rounded-lg" />
+                  <Skeleton className="h-14 w-full rounded-lg" />
+                </div>
+              </div>
             ) : !workflowDetail ? (
               <div className="space-y-3">
                 <h2 className="font-semibold text-navy-900">{selectedType.label}</h2>

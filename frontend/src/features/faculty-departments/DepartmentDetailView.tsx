@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import {
   MobileDataCardHeader,
   MobileDataCardGrid,
@@ -88,7 +89,9 @@ export function DepartmentDetailView({ departmentId }: Props) {
     });
   }, [detail, search, linkFilter]);
 
-  if (loading) return <p className="text-sm text-slate-500">Loading department…</p>;
+  if (loading) {
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={3} columns={5} rows={6} />;
+  }
 
   if (error || !detail) {
     return (

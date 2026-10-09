@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { apiFetch } from "@/lib/api";
@@ -259,9 +260,7 @@ export function PendingExceptionsView() {
       </div>
 
       {loading ? (
-        <div className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading pending items…
-        </div>
+        <TableSkeleton columns={5} rows={6} showHeader />
       ) : visible.length === 0 ? (
         <EmptyState
           title="No pending exceptions"

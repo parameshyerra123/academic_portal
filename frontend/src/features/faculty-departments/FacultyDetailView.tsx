@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { apiFetch } from "@/lib/api";
 import { StudentAvatar } from "@/features/students/StudentAvatar";
 import { FacultyMenteesPanel } from "./FacultyMenteesPanel";
@@ -110,7 +111,9 @@ export function FacultyDetailView({ hrmsId }: Props) {
     };
   }, [hrmsId]);
 
-  if (loading) return <p className="text-sm text-slate-500">Loading faculty…</p>;
+  if (loading) {
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={3} columns={4} rows={5} />;
+  }
 
   if (error || !faculty) {
     return (

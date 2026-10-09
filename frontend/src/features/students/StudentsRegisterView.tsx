@@ -16,6 +16,8 @@ import type { StudentListRow } from "@/features/students/student-types";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
+import { InlineLoader } from "@/components/ui/InlineLoader";
 
 export type StudentRow = StudentListRow;
 
@@ -442,17 +444,17 @@ export function StudentsRegisterView() {
         </div>
       ) : null}
 
-      <div className={cn("relative", loading && sortedStudents.length === 0 && "min-h-[200px]")}>
+      <div className="relative">
         {loading && !students.length ? (
-          <LoadingAnimation label="Loading students…" />
-        ) : null}
-
-        <DataTable
-          rows={sortedStudents}
-          rowKey={(row) => row.id}
-          onRowClick={(row) => setSelectedId(row.id)}
-          emptyMessage={loading ? " " : "No students match the selected page filters."}
-          mobileRender={(row) => (
+          <TableSkeleton columns={6} rows={8} showHeader />
+        ) : (
+          <>
+            <DataTable
+            rows={sortedStudents}
+            rowKey={(row) => row.id}
+            onRowClick={(row) => setSelectedId(row.id)}
+            emptyMessage="No students match the selected page filters."
+            mobileRender={(row) => (
             <div className="flex flex-col gap-1">
               <MobileDataCardHeader
                 title={
@@ -589,15 +591,19 @@ export function StudentsRegisterView() {
           ]}
         />
 
-        <div ref={sentinelRef} className="h-8 w-full" aria-hidden />
-        {loadingMore ? (
-          <p className="py-3 text-center text-xs text-slate-500">Loading more students…</p>
-        ) : null}
-        {!loading && !hasMore && students.length > 0 ? (
-          <p className="py-2 text-center text-xs text-slate-400">
-            All {totalStudents.toLocaleString("en-IN")} students loaded
-          </p>
-        ) : null}
+            <div ref={sentinelRef} className="h-8 w-full" aria-hidden />
+            {loadingMore ? (
+              <div className="py-3 flex justify-center">
+                <InlineLoader label="Loading more students…" />
+              </div>
+            ) : null}
+            {!loading && !hasMore && students.length > 0 ? (
+              <p className="py-2 text-center text-xs text-slate-400">
+                All {totalStudents.toLocaleString("en-IN")} students loaded
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
 
       <StudentDetailDrawer

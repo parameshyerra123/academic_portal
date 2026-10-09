@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { apiFetch } from "@/lib/api";
@@ -62,14 +63,7 @@ export function ExaminationDetailView({ examId }: Props) {
   }, [examId]);
 
   if (loading) {
-    return (
-      <div>
-        <PageHeader title="Examination" description="Loading from EMS…" />
-        <div className="rounded-lg border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading examination…
-        </div>
-      </div>
-    );
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={4} columns={5} rows={6} />;
   }
 
   if (error || !payload) {

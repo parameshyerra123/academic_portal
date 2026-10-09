@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
-import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { apiFetch } from "@/lib/api";
 import {
   Printer,
@@ -343,32 +344,47 @@ export function StaffWorkloadView({ embedded = false }: { embedded?: boolean }) 
       </div>
 
       {error ? <p className="text-sm text-critical">{error}</p> : null}
-      {loading ? <LoadingAnimation label="Loading staff timetable & attendance records…" /> : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 xl:grid-cols-4 sm:gap-3">
-        <StatCard compact label="Total Faculty" value={kpis.totalFaculty} hint="In active scope" />
-        <StatCard
-          compact
-          label="Classes Today"
-          value={sessionStats.totalScheduled}
-          hint={`Date: ${selectedDate}`}
-          tone="info"
-        />
-        <StatCard
-          compact
-          label="Classes Posted"
-          value={`${sessionStats.totalPosted} / ${sessionStats.totalScheduled}`}
-          hint={sessionStats.totalScheduled > 0 ? `${Math.round((sessionStats.totalPosted / sessionStats.totalScheduled) * 100)}% Conducted` : "No classes"}
-          tone={sessionStats.totalPosted === sessionStats.totalScheduled && sessionStats.totalScheduled > 0 ? "success" : "warning"}
-        />
-        <StatCard
-          compact
-          label="Attendance Rate"
-          value={sessionStats.totalEnrolled > 0 ? `${sessionStats.overallStudentPct}%` : "—"}
-          hint={sessionStats.totalEnrolled > 0 ? `${sessionStats.totalPresent} / ${sessionStats.totalEnrolled} Attended` : "Pending posting"}
-          tone={sessionStats.overallStudentPct >= 75 ? "success" : "critical"}
-        />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard compact label="Total Faculty" value={kpis.totalFaculty} hint="In active scope" />
+            <StatCard
+              compact
+              label="Classes Today"
+              value={sessionStats.totalScheduled}
+              hint={`Date: ${selectedDate}`}
+              tone="info"
+            />
+            <StatCard
+              compact
+              label="Classes Posted"
+              value={`${sessionStats.totalPosted} / ${sessionStats.totalScheduled}`}
+              hint={sessionStats.totalScheduled > 0 ? `${Math.round((sessionStats.totalPosted / sessionStats.totalScheduled) * 100)}% Conducted` : "No classes"}
+              tone={sessionStats.totalPosted === sessionStats.totalScheduled && sessionStats.totalScheduled > 0 ? "success" : "warning"}
+            />
+            <StatCard
+              compact
+              label="Attendance Rate"
+              value={sessionStats.totalEnrolled > 0 ? `${sessionStats.overallStudentPct}%` : "—"}
+              hint={sessionStats.totalEnrolled > 0 ? `${sessionStats.totalPresent} / ${sessionStats.totalEnrolled} Attended` : "Pending posting"}
+              tone={sessionStats.overallStudentPct >= 75 ? "success" : "critical"}
+            />
+          </>
+        )}
       </div>
+
+      {loading ? (
+        <TableSkeleton columns={7} rows={6} />
+      ) : (
+        <>
 
       {/* MOBILE CARD VIEW FOR FACULTY WORKLOAD (Compact Small Cards) */}
       <div className="block md:hidden space-y-2.5">
@@ -638,6 +654,8 @@ export function StaffWorkloadView({ embedded = false }: { embedded?: boolean }) 
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   );
 }

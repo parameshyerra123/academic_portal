@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { AssignMenteesDialog } from "./AssignMenteesDialog";
@@ -230,7 +231,7 @@ export function FacultyMenteesPanel({ staffLinkId, facultyName, assignments }: P
         ) : null}
 
         {loading ? (
-          <p className="text-sm text-slate-500">Loading mentor sections…</p>
+          <TableSkeleton columns={4} rows={4} showHeader={false} />
         ) : sectionGroups.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-4 py-6 text-center">
             <p className="text-sm font-medium text-navy-900">No mentor classes assigned yet</p>

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { ArrowUpDown, Check, FlaskConical, Layers, Plus, Printer, Search, Users } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
@@ -1003,10 +1004,7 @@ function StudentBatchClassifier({
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-xs text-slate-500">
-            <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-navy-900 border-t-transparent mr-2" />
-            Loading student roster...
-          </div>
+          <TableSkeleton columns={3} rows={5} showHeader={false} />
         ) : displayedStudents.length === 0 ? (
           <div className="p-6 text-center text-xs text-slate-500 bg-white rounded-lg border border-border">
             {students.length === 0
@@ -1069,6 +1067,42 @@ function StudentBatchClassifier({
     </div>
   );
 }
+
+function TimetablePlannerSkeleton() {
+  return (
+    <div className="space-y-4 portal-fade-in" aria-busy="true" aria-label="Loading timetable planner…">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-48 rounded" />
+          <Skeleton className="h-4 w-96 max-w-full rounded" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-28 rounded-md" />
+          <Skeleton className="h-8 w-20 rounded-md" />
+        </div>
+      </Card>
+      <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
+        <div className="grid grid-cols-7 gap-2 pb-3 border-b border-border">
+          <Skeleton className="h-8 w-20 rounded" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-full rounded" />
+          ))}
+        </div>
+        <div className="space-y-2.5 pt-3">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+            <div key={day} className="grid grid-cols-7 gap-2 items-center">
+              <Skeleton className="h-14 w-20 rounded" />
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full rounded" />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TimetablePlannerView({ embedded = false }: { embedded?: boolean }) {
   const { filters, masters, setFilters } = useAcademicContext();
   const { hasPermission, hasAnyPermission } = useAuth();
@@ -2139,7 +2173,7 @@ export function TimetablePlannerView({ embedded = false }: { embedded?: boolean 
       ) : null}
 
       {loading ? (
-        <LoadingAnimation label="Loading timetable…" />
+        <TimetablePlannerSkeleton />
       ) : null}
 
       {error ? (

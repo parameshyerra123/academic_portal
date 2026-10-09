@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
@@ -63,12 +64,14 @@ export function ExamResultsView({ examId }: Props) {
 
   if (loading) {
     return (
-      <div>
-        <PageHeader title="Exam results" description="Loading from EMS…" />
-        <div className="rounded-lg border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading examination results…
-        </div>
-      </div>
+      <PageSkeleton
+        titleWidth="w-56"
+        showFilterBar={false}
+        showStats={true}
+        statCardsCount={3}
+        columns={6}
+        rows={6}
+      />
     );
   }
 

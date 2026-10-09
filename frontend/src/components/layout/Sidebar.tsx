@@ -17,6 +17,7 @@ import { cn } from "@/lib/cn";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isTeachingStaffOnly, isSuperAdminUser } from "@/lib/teaching-scope";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 
 type Props = {
@@ -710,7 +711,14 @@ function SelfProfileModal(props: {
           </Button>
         </div>
         <div className="overflow-y-auto space-y-3 px-5 py-4">
-          {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
+          {loading ? (
+            <div className="space-y-3 py-2 portal-fade-in" aria-busy="true" aria-label="Loading profile…">
+              <Skeleton className="h-4 w-24 rounded" />
+              <Skeleton className="h-9 w-full rounded-md" />
+              <Skeleton className="h-4 w-28 rounded" />
+              <Skeleton className="h-9 w-full rounded-md" />
+            </div>
+          ) : null}
           {error ? <p className="text-sm text-critical">{error}</p> : null}
           {!loading ? (
             <>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import {
@@ -79,7 +80,7 @@ export function StudentResultsPanel({ rollNumber }: Props) {
         </p>
       ) : null}
 
-      {loading ? <p className="mt-3 text-sm text-slate-500">Loading results…</p> : null}
+      {loading ? <TableSkeleton columns={4} rows={4} showHeader={false} /> : null}
       {error ? <p className="mt-3 text-sm text-critical">{error}</p> : null}
 
       {!loading && !error && payload && payload.resultCount === 0 ? (

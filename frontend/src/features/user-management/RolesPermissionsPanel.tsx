@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -353,11 +354,7 @@ export function RolesPermissionsPanel({ canManage }: Props) {
   }
 
   if (loading) {
-    return (
-      <Card>
-        <p className="text-sm text-slate-500">Loading roles & permissions…</p>
-      </Card>
-    );
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={3} columns={5} rows={6} />;
   }
 
   return (

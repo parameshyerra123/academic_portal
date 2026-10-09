@@ -91,7 +91,10 @@ export function LoginForm() {
   if (!hydrated || loading || user) {
     return (
       <div className="flex h-full min-h-dvh items-center justify-center bg-[#F3F7FB] text-sm text-slate-500">
-        <LoadingAnimation label={hydrated && user ? "Redirecting…" : "Loading…"} />
+        <LoadingAnimation
+          label={hydrated && user ? "Redirecting to Academic Portal…" : "Loading Academic Portal…"}
+          subtitle="Please wait while we verify your session."
+        />
       </div>
     );
   }

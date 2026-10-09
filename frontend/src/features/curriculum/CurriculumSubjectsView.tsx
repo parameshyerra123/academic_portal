@@ -6,6 +6,8 @@ import { DataTable } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { Button } from "@/components/ui/Button";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import {
@@ -608,13 +610,24 @@ export function CurriculumSubjectsView() {
       </div>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Mapped subjects" value={summary.subjectCount} />
-        <StatCard label="Mapping rows" value={summary.mappingCount} />
-        <StatCard label="Curriculum groups" value={summary.groupCount} />
-        <StatCard label="Regulations" value={summary.regulationCount} />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard label="Mapped subjects" value={summary.subjectCount} />
+            <StatCard label="Mapping rows" value={summary.mappingCount} />
+            <StatCard label="Curriculum groups" value={summary.groupCount} />
+            <StatCard label="Regulations" value={summary.regulationCount} />
+          </>
+        )}
       </div>
 
-      {loading ? <p className="text-sm text-slate-500">Loading EMS curriculum…</p> : null}
+      {loading ? <TableSkeleton columns={6} rows={6} showHeader /> : null}
       {error ? (
         <div className="rounded-md border border-critical/30 bg-red-50 p-3 text-sm text-critical">
           {error}

@@ -1954,3 +1954,248 @@ export async function getMasterVsChangedTimetableReport(filters: MasterVsChanged
   };
 }
 
+export type DeclareDailyHolidayInput = {
+  timetableDate: string; // YYYY-MM-DD
+  academicYear?: string;
+  title: string;
+  remarks?: string | null;
+  holidayMode: "FULL_DAY" | "SLOTS";
+  slotIds?: number[];
+  collegeIds?: number[];
+  courseIds?: number[];
+  branchIds?: number[];
+  years?: number[];
+  semesters?: number[];
+  sections?: string[];
+  actorUserId?: number | null;
+  actorName?: string | null;
+};
+
+export async function declareDailyTimetableHoliday(input: DeclareDailyHolidayInput) {
+  await ensureDailyTimetableTable();
+
+  // 1. Resolve matching timetable plans from ap_timetable_plans
+  const conds: string[] = [];
+  const params: unknown[] = [];
+
+  if (input.academicYear && input.academicYear !== "all") {
+    conds.push("p.academic_year_label = ?");
+    params.push(input.academicYear);
+  }
+
+  if (input.collegeIds && input.collegeIds.length > 0) {
+    conds.push(`p.college_id IN (${input.collegeIds.map(() => "?").join(", ")})`);
+    params.push(...input.collegeIds);
+  }
+
+  if (input.courseIds && input.courseIds.length > 0) {
+    conds.push(`p.course_id IN (${input.courseIds.map(() => "?").join(", ")})`);
+    params.push(...input.courseIds);
+  }
+
+  if (input.branchIds && input.branchIds.length > 0) {
+    conds.push(`p.branch_id IN (${input.branchIds.map(() => "?").join(", ")})`);
+    params.push(...input.branchIds);
+  }
+
+  if (input.years && input.years.length > 0) {
+    conds.push(`p.year_of_study IN (${input.years.map(() => "?").join(", ")})`);
+    params.push(...input.years);
+  }
+
+  if (input.semesters && input.semesters.length > 0) {
+    conds.push(`p.semester_number IN (${input.semesters.map(() => "?").join(", ")})`);
+    params.push(...input.semesters);
+  }
+
+  if (input.sections && input.sections.length > 0) {
+    conds.push(`(p.section_name IN (${input.sections.map(() => "?").join(", ")}) OR p.section_name IS NULL)`);
+    params.push(...input.sections);
+  }
+
+  const whereClause = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
+
+  const plans = await queryAcademic<
+    (RowDataPacket & {
+      id: number;
+      college_id: number;
+      course_id: number;
+      branch_id: number;
+      batch: string;
+      year_of_study: number | null;
+      semester_number: number | null;
+      section_name: string | null;
+      timing_template_id: number | null;
+      academic_year_label: string;
+    })[]
+  >(
+    `
+    SELECT p.id, p.college_id, p.course_id, p.branch_id, p.batch,
+           p.year_of_study, p.semester_number, p.section_name,
+           p.timing_template_id, p.academic_year_label
+    FROM ap_timetable_plans p
+    ${whereClause}
+    `,
+    params,
+  );
+
+  let affectedSlotsCount = 0;
+  const timingTemplateSlotsCache = new Map<number, Array<{ id: number; label: string; startTime: string; endTime: string }>>();
+
+  // Cache slot details if specific slot IDs were given
+  const explicitSlotMap = new Map<number, { label: string; time: string }>();
+  if (input.slotIds && input.slotIds.length > 0) {
+    try {
+      const slotRows = await queryAcademic<
+        (RowDataPacket & { id: number; label: string; start_time: string; end_time: string })[]
+      >(
+        `SELECT id, label, start_time, end_time FROM ap_timing_template_slots WHERE id IN (${input.slotIds.map(() => "?").join(", ")})`,
+        input.slotIds,
+      );
+      for (const sr of slotRows) {
+        explicitSlotMap.set(sr.id, {
+          label: sr.label || `Slot ${sr.id}`,
+          time: `${sr.start_time}–${sr.end_time}`,
+        });
+      }
+    } catch (e) {
+      console.warn("Could not query ap_timing_template_slots:", e);
+    }
+  }
+
+  const holidayLabel = input.title.trim();
+  const remarksText = input.remarks?.trim() || `Holiday: ${holidayLabel}`;
+
+  for (const plan of plans) {
+    let targetSlots: Array<{ id: number; label: string; time: string }> = [];
+
+    if (input.holidayMode === "SLOTS" && input.slotIds && input.slotIds.length > 0) {
+      targetSlots = input.slotIds.map((sid) => ({
+        id: sid,
+        label: explicitSlotMap.get(sid)?.label || `Slot ${sid}`,
+        time: explicitSlotMap.get(sid)?.time || "",
+      }));
+    } else {
+      // FULL_DAY: retrieve all active assignable class slots for this template
+      const templateId = plan.timing_template_id;
+      if (templateId) {
+        if (!timingTemplateSlotsCache.has(templateId)) {
+          const tSlots = await queryAcademic<
+            (RowDataPacket & { id: number; label: string; start_time: string; end_time: string })[]
+          >(
+            `
+            SELECT id, label, start_time, end_time
+            FROM ap_timing_template_slots
+            WHERE template_id = ? AND is_assignable = 1 AND is_active = 1
+            ORDER BY sort_order ASC, start_time ASC
+            `,
+            [templateId],
+          );
+          timingTemplateSlotsCache.set(
+            templateId,
+            tSlots.map((s) => ({
+              id: s.id,
+              label: s.label || `Slot ${s.id}`,
+              startTime: s.start_time,
+              endTime: s.end_time,
+            })),
+          );
+        }
+        const cached = timingTemplateSlotsCache.get(templateId) || [];
+        targetSlots = cached.map((s) => ({
+          id: s.id,
+          label: s.label,
+          time: `${s.startTime}–${s.endTime}`,
+        }));
+      }
+
+      // If template had no slots or no template assigned, fallback to explicit slotIds if available
+      if (targetSlots.length === 0 && input.slotIds && input.slotIds.length > 0) {
+        targetSlots = input.slotIds.map((sid) => ({
+          id: sid,
+          label: explicitSlotMap.get(sid)?.label || `Slot ${sid}`,
+          time: explicitSlotMap.get(sid)?.time || "",
+        }));
+      }
+    }
+
+    for (const tSlot of targetSlots) {
+      await executeAcademic(
+        `
+        INSERT INTO ap_daily_timetable_activities (
+          timetable_date,
+          college_id,
+          course_id,
+          branch_id,
+          batch,
+          semester,
+          section_name,
+          academic_year,
+          timing_slot_id,
+          slot_label,
+          slot_time,
+          new_subject_name,
+          change_type,
+          remarks,
+          changed_by_user_id,
+          changed_by_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'HOLIDAY', ?, ?, ?)
+        `,
+        [
+          input.timetableDate,
+          plan.college_id,
+          plan.course_id,
+          plan.branch_id,
+          plan.batch,
+          plan.semester_number || 1,
+          plan.section_name ?? null,
+          plan.academic_year_label || input.academicYear || "2024-2025",
+          tSlot.id,
+          tSlot.label,
+          tSlot.time,
+          holidayLabel,
+          remarksText,
+          input.actorUserId ?? null,
+          input.actorName ?? null,
+        ],
+      );
+      affectedSlotsCount++;
+    }
+  }
+
+  // Also if FULL_DAY holiday, sync with custom_holidays in student DB so calendar also reflects it
+  if (input.holidayMode === "FULL_DAY") {
+    try {
+      const { createCustomHoliday } = await import("./attendance-calendar.service.js");
+      let collegeNames: string[] = [];
+      if (input.collegeIds && input.collegeIds.length > 0) {
+        const cRows = await queryStudent<(RowDataPacket & { name: string })[]>(
+          `SELECT name FROM colleges WHERE id IN (${input.collegeIds.map(() => "?").join(", ")})`,
+          input.collegeIds,
+        );
+        collegeNames = cRows.map((r) => r.name);
+      }
+      await createCustomHoliday({
+        holidayDate: input.timetableDate,
+        title: holidayLabel,
+        description: input.remarks || `Declared on Today Timetable for ${holidayLabel}`,
+        targetColleges: collegeNames.length > 0 ? collegeNames : null,
+        targetBatches: null,
+        targetPrograms: null,
+        createdBy: input.actorUserId ?? null,
+      });
+    } catch (calendarErr) {
+      console.warn("Could not create calendar holiday in student DB:", calendarErr);
+    }
+  }
+
+  return {
+    success: true,
+    affectedPlansCount: plans.length,
+    affectedSlotsCount,
+    title: holidayLabel,
+    date: input.timetableDate,
+    mode: input.holidayMode,
+  };
+}
+

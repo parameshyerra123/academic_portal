@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable } from "@/components/ui/DataTable";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { apiFetch } from "@/lib/api";
 import { StudentAvatar } from "@/features/students/StudentAvatar";
 import { InterventionDialog } from "./InterventionDialog";
@@ -84,14 +85,7 @@ export function MentoringCaseDetailView({ caseId }: Props) {
   }
 
   if (loading) {
-    return (
-      <div>
-        <PageHeader title="Student risk detail" description="Loading…" />
-        <Card>
-          <p className="text-sm text-slate-500">Loading student risk context…</p>
-        </Card>
-      </div>
-    );
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={3} columns={4} rows={6} />;
   }
 
   if (error) {

@@ -21,6 +21,7 @@ import {
   Users,
   BookOpen,
   CheckCircle,
+  CalendarOff,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
@@ -30,11 +31,41 @@ import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { Skeleton } from "@/components/ui/Skeleton";
 import {
   isNonClassTimingSlot,
   timingSlotDisplayLabel,
   timingSlotCellClass,
 } from "@/features/timetables/timing-slot-utils";
+import { GiveHolidayModal } from "./GiveHolidayModal";
+
+function TimetableScheduleSkeleton() {
+  return (
+    <div className="space-y-4 portal-fade-in mb-5">
+      {[1, 2].map((i) => (
+        <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-6 w-20 rounded-lg" />
+              <Skeleton className="h-6 w-24 rounded-lg" variant="subtle" />
+              <Skeleton className="h-4 w-36 rounded" />
+            </div>
+            <Skeleton className="h-6 w-16 rounded-full" variant="subtle" />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-1">
+            {Array.from({ length: 7 }).map((_, j) => (
+              <div key={j} className="p-3 rounded-xl border border-border bg-slate-50/60 space-y-2">
+                <Skeleton className="h-3 w-16 rounded" />
+                <Skeleton className="h-4 w-24 rounded" />
+                <Skeleton className="h-2.5 w-12 rounded" variant="subtle" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type SlotCellEntry = {
   id: number;
@@ -741,13 +772,26 @@ function PeriodEditModal({
 
   const [selectedSlotIds, setSelectedSlotIds] = useState<number[]>([slot.id]);
 
-  const [periodType, setPeriodType] = useState<"subject" | "special">(() => {
+  const isCurrentHoliday = Boolean(
+    currentOverride?.remarks?.toLowerCase().includes("holiday") ||
+      currentOverride?.customLabel?.toLowerCase().includes("holiday") ||
+      currentOverride?.subjectName?.toLowerCase().includes("holiday") ||
+      (currentOverride as unknown as { changeType?: string })?.changeType === "HOLIDAY",
+  );
+
+  const [periodType, setPeriodType] = useState<"subject" | "special" | "holiday">(() => {
+    if (isCurrentHoliday) return "holiday";
     if (currentOverride?.customLabel) return "special";
     if (!currentOverride?.subjectId && masterEntry?.customLabel) return "special";
     return "subject";
   });
   const [customLabel, setCustomLabel] = useState(
     currentOverride?.customLabel || (masterEntry?.customLabel ?? "CRT"),
+  );
+  const [holidayTitle, setHolidayTitle] = useState(
+    isCurrentHoliday
+      ? currentOverride?.customLabel || currentOverride?.subjectName || "Holiday"
+      : "Declared Holiday",
   );
 
   const [subjectId, setSubjectId] = useState(
@@ -784,6 +828,28 @@ function PeriodEditModal({
   const handleSave = () => {
     if (!canEdit) return;
     const fac = faculty.find((f) => f.hrmsEmployeeId === hrmsEmployeeId);
+
+    if (periodType === "holiday") {
+      const cleanHoliday = holidayTitle.trim() || "Declared Holiday";
+      onSave({
+        override: {
+          slotId: slot.id,
+          slotLabel: slot.label,
+          slotTime: `${slot.startTime}–${slot.endTime}`,
+          subjectId: "",
+          subjectCode: "",
+          subjectName: cleanHoliday,
+          customLabel: cleanHoliday,
+          hrmsEmployeeId: "",
+          facultyName: "",
+          remarks: remarks || `Holiday: ${cleanHoliday}`,
+        },
+        isRevert: false,
+        remarks: remarks || `Holiday: ${cleanHoliday}`,
+        slotIds: selectedSlotIds,
+      });
+      return;
+    }
 
     if (periodType === "special") {
       const cleanCustom = customLabel.trim();
@@ -871,7 +937,17 @@ function PeriodEditModal({
         {/* Content */}
         <div className="p-6 space-y-4 max-h-[calc(85vh-130px)] overflow-y-auto">
           {/* Status Banner */}
-          {isPeriodModified ? (
+          {isCurrentHoliday ? (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 flex items-start gap-2.5 shadow-2xs">
+              <CalendarOff className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Declared Holiday for {formatDate(fromYMD(date))}</p>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  This class has been declared as a holiday ({currentOverride?.customLabel || currentOverride?.subjectName || "Holiday"}). Master Timetable remains unchanged.
+                </p>
+              </div>
+            </div>
+          ) : isPeriodModified ? (
             <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-xs text-rose-900 flex items-start gap-2.5">
               <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
               <div>
@@ -1084,11 +1160,36 @@ function PeriodEditModal({
                               : "text-slate-600 hover:text-slate-900",
                           )}
                         >
-                          Special / Custom Class
+                          Special Class
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPeriodType("holiday")}
+                          className={cn(
+                            "flex-1 rounded-md py-1 text-center font-bold transition-all cursor-pointer",
+                            periodType === "holiday"
+                              ? "bg-white text-amber-900 shadow-xs ring-1 ring-amber-300 font-bold"
+                              : "text-slate-600 hover:text-slate-900",
+                          )}
+                        >
+                          Holiday
                         </button>
                       </div>
 
-                      {periodType === "subject" ? (
+                      {periodType === "holiday" ? (
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-900 mb-1">
+                            Holiday Title / Occasion
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Festival Holiday, Sports Day, Special Leave…"
+                            value={holidayTitle}
+                            onChange={(e) => setHolidayTitle(e.target.value)}
+                            className="h-9 w-full rounded-lg border border-amber-300 bg-white px-2.5 text-xs font-bold text-amber-950 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 mb-2"
+                          />
+                        </div>
+                      ) : periodType === "subject" ? (
                         <div>
                           <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
                             Subject for {formatDate(fromYMD(date))}
@@ -1457,6 +1558,55 @@ function TodayPeriodGrid({
               );
             }
 
+            const isHoliday = Boolean(
+              override?.remarks?.toLowerCase().includes("holiday") ||
+                override?.customLabel?.toLowerCase().includes("holiday") ||
+                override?.subjectName?.toLowerCase().includes("holiday") ||
+                override?.subjectCode?.toLowerCase().includes("holiday") ||
+                (override as unknown as { changeType?: string })?.changeType === "HOLIDAY",
+            );
+
+            if (isHoliday) {
+              return (
+                <button
+                  key={slot.id}
+                  type="button"
+                  onClick={() => onSlotClick(slot, masterEntry)}
+                  className="group relative flex flex-col justify-between rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50/70 p-2.5 text-left min-h-[110px] shadow-2xs hover:shadow-md hover:border-amber-400 ring-1 ring-amber-200 transition-all cursor-pointer"
+                  title={`Holiday declared: ${displaySubjectName || "Holiday"}`}
+                >
+                  <div>
+                    <div className="flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wider text-amber-800 mb-1">
+                      <CalendarOff className="h-3 w-3 text-amber-600" />
+                      <span>Holiday Declared</span>
+                    </div>
+                    <p
+                      className="text-xs font-bold uppercase leading-snug line-clamp-2 text-amber-950"
+                      title={displaySubjectName || "Holiday"}
+                    >
+                      {displaySubjectName || "Holiday"}
+                    </p>
+                    {override?.remarks && override.remarks !== displaySubjectName && (
+                      <p
+                        className="text-[10px] text-amber-800/80 mt-1 line-clamp-2 font-medium"
+                        title={override.remarks}
+                      >
+                        {override.remarks}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-amber-200">
+                    <span className="inline-flex items-center gap-1 rounded bg-amber-200/80 px-1.5 py-0.2 text-[9px] font-extrabold text-amber-900 border border-amber-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-600 animate-pulse" />
+                      <span>Holiday</span>
+                    </span>
+                    <Edit2 className="h-3 w-3 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              );
+            }
+
             return (
               <button
                 key={slot.id}
@@ -1611,6 +1761,51 @@ function TodayPeriodGrid({
               );
             }
 
+            const isHolidayMobile = Boolean(
+              override?.remarks?.toLowerCase().includes("holiday") ||
+                override?.customLabel?.toLowerCase().includes("holiday") ||
+                override?.subjectName?.toLowerCase().includes("holiday") ||
+                override?.subjectCode?.toLowerCase().includes("holiday") ||
+                (override as unknown as { changeType?: string })?.changeType === "HOLIDAY",
+            );
+
+            if (isHolidayMobile) {
+              return (
+                <button
+                  key={slot.id}
+                  type="button"
+                  onClick={() => onSlotClick(slot, masterEntry)}
+                  className="rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50/70 p-3 flex flex-col justify-between text-left min-h-[96px] shadow-2xs hover:shadow-md ring-1 ring-amber-200 transition-all cursor-pointer"
+                >
+                  <div>
+                    <div className="flex items-center justify-between border-b border-amber-200/60 pb-1.5 mb-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wide text-amber-900 flex items-center gap-1">
+                        <CalendarOff className="h-3.5 w-3.5 text-amber-600" />
+                        <span>{slot.label}</span>
+                      </span>
+                      <span className="text-[10px] font-medium text-amber-800 bg-amber-200/60 px-1.5 py-0.5 rounded">
+                        {slot.startTime}–{slot.endTime}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold uppercase text-amber-950 line-clamp-2">
+                      {displaySubjectName || "Holiday"}
+                    </p>
+                    {override?.remarks && (
+                      <p className="text-[10px] text-amber-800 mt-0.5 line-clamp-1">{override.remarks}</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-amber-200/60">
+                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-amber-900">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-600 animate-pulse" />
+                      Holiday Declared
+                    </span>
+                    <Edit2 className="h-3 w-3 text-amber-600" />
+                  </div>
+                </button>
+              );
+            }
+
             return (
               <button
                 key={slot.id}
@@ -1732,6 +1927,7 @@ export function TodayTimetableView() {
 
   const [selectedDate, setSelectedDate] = useState<string>(toYMD(today));
   const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [giveHolidayModalOpen, setGiveHolidayModalOpen] = useState(false);
 
   const [planner, setPlanner] = useState<PlannerResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2305,8 +2501,19 @@ export function TodayTimetableView() {
           </p>
         </div>
 
-        {/* Top Right "Activity" Button */}
+        {/* Top Right "Give Holiday" & "Activity" Buttons */}
         <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          {canChangeTimetable && !isPastDate && (
+            <Button
+              id="today-timetable-give-holiday-button"
+              onClick={() => setGiveHolidayModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:from-amber-600 hover:to-orange-700 transition-all cursor-pointer"
+            >
+              <CalendarOff className="h-4 w-4" />
+              <span>Give Holiday</span>
+            </Button>
+          )}
+
           <Button
             id="today-timetable-activity-button"
             onClick={() => setActivityModalOpen(true)}
@@ -2510,7 +2717,7 @@ export function TodayTimetableView() {
       {/* ============================================================ */}
       {isAllBatchesMode && filtersComplete && (
         <>
-          {allBatchesLoading && <LoadingAnimation label="Loading all batches timetable..." />}
+          {allBatchesLoading && <TimetableScheduleSkeleton />}
           {allBatchesError && (
             <Card className="mb-4 border-red-200 bg-red-50">
               <p className="text-sm text-red-700">{allBatchesError}</p>
@@ -2599,7 +2806,7 @@ export function TodayTimetableView() {
       {/* ============================================================ */}
       {!isAllBatchesMode && (
         <>
-          {loading && <LoadingAnimation label="Loading timetable..." />}
+          {loading && <TimetableScheduleSkeleton />}
           {error && (
             <Card className="mb-4 border-red-200 bg-red-50">
               <p className="text-sm text-red-700">{error}</p>
@@ -2651,6 +2858,37 @@ export function TodayTimetableView() {
           activities={activities}
           onSelectDate={(ymd) => setSelectedDate(ymd)}
           onClose={() => setActivityModalOpen(false)}
+        />
+      )}
+
+      {/* Give Holiday Modal with Session/Slots and Multi-Audience Selection */}
+      {giveHolidayModalOpen && (
+        <GiveHolidayModal
+          open={giveHolidayModalOpen}
+          onClose={() => setGiveHolidayModalOpen(false)}
+          currentDate={selectedDate}
+          academicYear={filters.academicYear || masters?.defaults?.academicYear || "2024-2025"}
+          availableSlots={
+            daySlots.length > 0
+              ? daySlots
+              : (allBatchesData[0]?.planner?.slotsByDay?.[selectedDayName] ?? []).filter(
+                  (s) => s.isActive !== false,
+                )
+          }
+          masters={masters}
+          initialScope={{
+            collegeId: filters.collegeId,
+            courseId: filters.courseId,
+            branchId: filters.branchId,
+          }}
+          onHolidayDeclared={() => {
+            if (isAllBatchesMode) {
+              void loadAllBatches();
+            } else {
+              void loadPlanner();
+              void loadDailyOverridesAndActivities();
+            }
+          }}
         />
       )}
 

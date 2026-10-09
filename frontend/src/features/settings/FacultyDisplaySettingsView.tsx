@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Button } from "@/components/ui/Button";
+import { ContentCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -162,7 +164,12 @@ export function FacultyDisplaySettingsView() {
 
       {error && <p className="mb-3 text-sm text-critical">{error}</p>}
       {message && <p className="mb-3 text-sm text-emerald-700">{message}</p>}
-      {loading && <p className="mb-3 text-sm text-slate-500">Loading employee groups from HRMS…</p>}
+      {loading && (
+        <div className="space-y-4">
+          <ContentCardSkeleton contentHeight="h-24" />
+          <TableSkeleton columns={3} rows={5} showPagination={false} />
+        </div>
+      )}
 
       {!loading && settings && (
         <>

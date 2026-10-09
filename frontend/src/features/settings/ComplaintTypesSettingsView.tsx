@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
+import { ContentCardSkeleton } from "@/components/ui/CardSkeleton";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 
@@ -108,7 +109,7 @@ export function ComplaintTypesSettingsView() {
         ) : null}
 
         {loading ? (
-          <p className="text-sm text-slate-500">Loading...</p>
+          <ContentCardSkeleton contentHeight="h-44" />
         ) : (
           <div className="space-y-4">
             <div className="space-y-3">

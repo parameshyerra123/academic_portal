@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { ContentCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { DataErrorState } from "@/components/ui/DataErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
@@ -246,7 +248,11 @@ export function FacultyInternalMarksView() {
       {activeTab === "my_subjects" && (
         <div className="space-y-4">
           {loading ? (
-            <LoadingAnimation label="Loading your assigned subjects..." />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <ContentCardSkeleton key={i} contentHeight="h-28" />
+              ))}
+            </div>
           ) : error ? (
             <DataErrorState message={error} />
           ) : assignedSubjects.length === 0 ? (
@@ -364,7 +370,7 @@ export function FacultyInternalMarksView() {
           </div>
 
           {loading ? (
-            <LoadingAnimation />
+            <TableSkeleton columns={5} rows={5} showHeader />
           ) : pendingSubmissions.length === 0 ? (
             <EmptyState title="No submissions found" description="No internal marks submissions matching your access scope." />
           ) : (

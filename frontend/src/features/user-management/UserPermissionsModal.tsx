@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
+import { GlobalLoader } from "@/components/ui/GlobalLoader";
 import { apiFetch } from "@/lib/api";
 import type { ManagedUser, PermissionCatalogItem } from "@/features/user-management/types";
 import {
@@ -102,11 +103,11 @@ export function UserPermissionsModal({ user, onClose, onSaved }: Props) {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-        <div className="flex w-full max-w-4xl flex-col rounded-2xl bg-white shadow-2xl p-8 items-center justify-center">
-          <p className="text-sm text-slate-500">Loading permissions...</p>
-        </div>
-      </div>
+      <GlobalLoader
+        variant="overlay"
+        title="Loading Permissions…"
+        subtitle="Please wait while we fetch security permissions catalog."
+      />
     );
   }
 

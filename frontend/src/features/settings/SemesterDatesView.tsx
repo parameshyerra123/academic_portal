@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -350,9 +351,7 @@ export function SemesterDatesView() {
           Select college, course, and batch to load semester dates.
         </div>
       ) : loading ? (
-        <div className="rounded-lg border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading semester dates…
-        </div>
+        <TableSkeleton columns={6} rows={5} showPagination={false} />
       ) : grid ? (
         <div className="rounded-lg border border-border bg-card">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">

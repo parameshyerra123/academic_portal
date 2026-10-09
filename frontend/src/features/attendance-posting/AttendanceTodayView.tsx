@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isTeachingStaffOnly, isSuperAdminUser } from "@/lib/teaching-scope";
@@ -806,10 +807,34 @@ export function AttendanceTodayView() {
             </Card>
           ) : null}
 
-          {/* Loading State */}
+          {/* Loading State: Skeleton Cards */}
           {loading ? (
-            <div className="py-8 text-center text-xs text-slate-500">
-              Loading class periods for {selectedDayInfo.fullLabel}…
+            <div className="grid gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading class periods">
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <Card
+                  key={idx}
+                  className="flex flex-col justify-between border-l-4 border-l-slate-200 p-2.5 sm:p-3.5 shadow-2xs"
+                >
+                  <div>
+                    <div className="mb-2 flex items-center justify-between gap-2 border-b border-border/50 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Skeleton className="h-4.5 w-16 rounded" />
+                        <Skeleton className="h-4 w-24 rounded" />
+                      </div>
+                      <Skeleton className="h-4 w-14 rounded-full" />
+                    </div>
+                    <Skeleton className="h-5 w-4/5 mb-1.5 rounded" />
+                    <Skeleton className="h-4 w-1/2 mb-2.5 rounded" />
+                    <div className="space-y-1.5 pt-1">
+                      <Skeleton className="h-3.5 w-48 rounded" />
+                      <Skeleton className="h-3.5 w-36 rounded" />
+                    </div>
+                  </div>
+                  <div className="mt-3.5 pt-1.5 border-t border-border/40">
+                    <Skeleton className="h-7.5 sm:h-8 w-full rounded-lg" />
+                  </div>
+                </Card>
+              ))}
             </div>
           ) : null}
 
@@ -850,8 +875,9 @@ export function AttendanceTodayView() {
           ) : null}
 
           {/* Sessions Grid (Compact Small Cards on Mobile) */}
-          <div className="grid gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredSessions.map((item) => (
+          {!loading && filteredSessions.length > 0 ? (
+            <div className="grid gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredSessions.map((item) => (
               <Card
                 key={item.id}
                 className={`flex flex-col justify-between border-l-4 p-2.5 sm:p-3.5 shadow-2xs hover:shadow-xs transition-all ${
@@ -958,7 +984,8 @@ export function AttendanceTodayView() {
               </Card>
             ))}
           </div>
-        </>
+        ) : null}
+      </>
       )}
     </div>
   );

@@ -25,21 +25,43 @@ import {
   WEEK_DAY_CODES,
 } from "./utils";
 
+import { Skeleton } from "@/components/ui/Skeleton";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+
 const PAGE_DESCRIPTION = "Your published teaching schedule for the selected week.";
 
 function TimetableSkeleton() {
   return (
-    <div className="animate-pulse space-y-4">
-      <div className="h-16 rounded-lg border border-border bg-card" />
+    <div className="space-y-4 portal-fade-in">
+      <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-card shadow-2xs">
+        <Skeleton className="h-8 w-32 rounded-lg" />
+        <Skeleton className="h-5 w-44 rounded" />
+        <Skeleton className="h-8 w-24 rounded-lg" />
+      </div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="h-24 rounded-lg border border-border bg-card" />
+          <StatCardSkeleton key={index} compact />
         ))}
       </div>
-      <div className="h-36 rounded-lg border border-border bg-card" />
+      <div className="p-4 rounded-xl border border-border bg-card shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-36 rounded" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-20 w-full rounded-lg" variant="subtle" />
+      </div>
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="h-56 rounded-lg border border-border bg-card" />
+          <div key={index} className="p-4 rounded-xl border border-border bg-card shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-28 rounded" />
+              <Skeleton className="h-4 w-12 rounded-full" variant="subtle" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-12 w-full rounded-lg" variant="subtle" />
+              <Skeleton className="h-12 w-full rounded-lg" variant="subtle" />
+            </div>
+          </div>
         ))}
       </div>
     </div>

@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+import { GlobalLoader } from "@/components/ui/GlobalLoader";
+
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -17,17 +19,21 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-sm text-slate-500">
-        Checking session…
-      </div>
+      <GlobalLoader
+        variant="fullscreen"
+        title="Loading Academic Portal…"
+        subtitle="Please wait while we verify your session data."
+      />
     );
   }
 
   if (!user) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-sm text-slate-500">
-        Redirecting to login…
-      </div>
+      <GlobalLoader
+        variant="fullscreen"
+        title="Redirecting to login…"
+        subtitle="Please sign in to access the Academic Portal."
+      />
     );
   }
 

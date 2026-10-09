@@ -23,6 +23,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 
 export type AttendanceMark = "present" | "absent" | "od" | "leave";
 
@@ -1332,9 +1334,13 @@ export function AttendanceAnalyticsView({ embedded = false }: { embedded?: boole
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center p-12 text-slate-400 space-y-2">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-navy-800 border-t-transparent" />
-          <p className="text-xs font-medium">Loading attendance data…</p>
+        <div className="space-y-4 portal-fade-in">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <StatCardSkeleton key={i} compact />
+            ))}
+          </div>
+          <TableSkeleton columns={6} rows={6} showHeader />
         </div>
       ) : (
         <>

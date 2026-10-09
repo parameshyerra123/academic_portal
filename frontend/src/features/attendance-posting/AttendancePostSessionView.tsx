@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { StudentAvatar } from "@/features/students/StudentAvatar";
@@ -269,7 +270,7 @@ export function AttendancePostSessionView() {
   }
 
   if (loading) {
-    return <p className="text-sm text-slate-500">Loading class roster…</p>;
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={4} columns={5} rows={8} />;
   }
 
   if (error && !payload) {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { DataErrorState } from "@/components/ui/DataErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { apiFetch } from "@/lib/api";
@@ -879,7 +880,7 @@ export function InternalMarksManagementView() {
 
           {/* Table */}
           {loading ? (
-            <LoadingAnimation label="Loading academic hierarchy & access rules..." />
+            <TableSkeleton columns={6} rows={6} showHeader />
           ) : error ? (
             <DataErrorState message={error} />
           ) : filteredHierarchy.length === 0 ? (
@@ -1115,7 +1116,7 @@ export function InternalMarksManagementView() {
             <Button size="sm" onClick={() => void fetchData(true)}>Refresh</Button>
           </div>
           {loading ? (
-            <LoadingAnimation />
+            <TableSkeleton columns={6} rows={5} showHeader />
           ) : activeRulesList.length === 0 ? (
             <EmptyState title="No active access rules" description="No active access rules found. Use the Hierarchy tab to enable access." />
           ) : (
@@ -1286,7 +1287,7 @@ export function InternalMarksManagementView() {
         <Card className="p-4">
           <h3 className="text-base font-semibold text-navy-900 mb-3">Internal Marks Module Audit Log</h3>
           {loading ? (
-            <LoadingAnimation />
+            <TableSkeleton columns={6} rows={5} showHeader />
           ) : auditLogs.length === 0 ? (
             <EmptyState title="No audit entries yet" description="All permission changes and marks operations are recorded here." />
           ) : (

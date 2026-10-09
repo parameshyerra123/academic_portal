@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { apiFetch } from "@/lib/api";
 import {
   WorkloadTimetableGrid,
@@ -81,7 +82,7 @@ export function FacultyWorkloadDetailView() {
   }, [params.facultyId]);
 
   if (loading) {
-    return <p className="text-sm text-slate-500">Loading faculty workload…</p>;
+    return <PageSkeleton showFilterBar={false} showStats statCardsCount={4} columns={5} rows={6} />;
   }
 
   if (error || !faculty) {

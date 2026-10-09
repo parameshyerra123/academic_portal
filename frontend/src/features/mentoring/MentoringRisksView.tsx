@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatCard } from "@/components/ui/StatCard";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -95,12 +97,25 @@ export function MentoringRisksView() {
       ) : null}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="Total Mentees" value={loading ? "…" : (summary?.totalMentees ?? 0)} tone="info" />
-        <StatCard label="High Risk" value={loading ? "…" : (summary?.highRisk ?? 0)} tone="critical" />
-        <StatCard label="Medium Risk" value={loading ? "…" : (summary?.mediumRisk ?? 0)} tone="warning" />
-        <StatCard label="Open Complaints" value={loading ? "…" : (summary?.openCases ?? 0)} />
-        <StatCard label="Follow-ups Due" value={loading ? "…" : (summary?.followUpsDue ?? 0)} tone="warning" />
-        <StatCard label="Escalated" value={loading ? "…" : (summary?.escalated ?? 0)} tone="critical" />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard label="Total Mentees" value={summary?.totalMentees ?? 0} tone="info" />
+            <StatCard label="High Risk" value={summary?.highRisk ?? 0} tone="critical" />
+            <StatCard label="Medium Risk" value={summary?.mediumRisk ?? 0} tone="warning" />
+            <StatCard label="Open Complaints" value={summary?.openCases ?? 0} />
+            <StatCard label="Follow-ups Due" value={summary?.followUpsDue ?? 0} tone="warning" />
+            <StatCard label="Escalated" value={summary?.escalated ?? 0} tone="critical" />
+          </>
+        )}
       </div>
 
       <FilterBar className="mb-4">
@@ -163,9 +178,7 @@ export function MentoringRisksView() {
       ) : null}
 
       {loading ? (
-        <div className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading mentoring dashboard…
-        </div>
+        <TableSkeleton columns={6} rows={6} showHeader />
       ) : rows.length === 0 ? (
         <EmptyState
           title="No mentoring/risk records available"

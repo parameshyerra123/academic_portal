@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import type { StudentExaminationsResponse } from "@/features/examinations/exam-types";
@@ -53,7 +54,7 @@ export function StudentExaminationsPanel({ studentId }: Props) {
         Eligible exams from EMS exam_scopes. Registrations from EMS exam_applications (roll number).
       </p>
       {loading ? (
-        <p className="mt-3 text-sm text-slate-500">Loading examinations…</p>
+        <TableSkeleton columns={4} rows={4} showHeader={false} />
       ) : null}
       {error ? <p className="mt-3 text-sm text-critical">{error}</p> : null}
       {payload ? (

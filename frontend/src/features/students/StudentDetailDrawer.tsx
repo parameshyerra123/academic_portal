@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { InlineLoader } from "@/components/ui/InlineLoader";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { StudentAvatar } from "@/features/students/StudentAvatar";
@@ -53,27 +55,27 @@ function joinMeta(parts: Array<string | null | undefined>) {
 
 function DetailSkeleton() {
   return (
-    <div className="animate-pulse" aria-hidden>
+    <div className="portal-fade-in" aria-busy="true" aria-label="Loading student details…">
       <div className="border-b border-border px-5 py-5">
         <div className="flex gap-4">
-          <div className="h-16 w-16 rounded-full bg-slate-200" />
+          <Skeleton className="h-16 w-16 rounded-full" />
           <div className="flex-1 space-y-2">
-            <div className="h-5 w-2/3 rounded bg-slate-200" />
-            <div className="h-3 w-1/3 rounded bg-slate-200" />
-            <div className="h-3 w-1/2 rounded bg-slate-200" />
+            <Skeleton className="h-5 w-2/3 rounded" />
+            <Skeleton className="h-3.5 w-1/3 rounded" />
+            <Skeleton className="h-3.5 w-1/2 rounded" />
           </div>
-          <div className="h-6 w-16 rounded bg-slate-200" />
+          <Skeleton className="h-6 w-16 rounded-full" />
         </div>
       </div>
       <div className="flex gap-2 border-b border-border px-5 py-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-8 w-24 rounded-md bg-slate-200" />
+          <Skeleton key={i} className="h-8 w-24 rounded-md" />
         ))}
       </div>
       <div className="px-5 py-5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-md bg-slate-200" />
+            <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
       </div>
@@ -852,7 +854,7 @@ export function StudentDetailBody({ student }: { student: StudentDetail }) {
                     </select>
                   </label>
                   {attendanceLoading ? (
-                    <p className="text-xs text-slate-500">Loading…</p>
+                    <InlineLoader size="sm" label="Updating…" />
                   ) : null}
                 </div>
               ) : null}

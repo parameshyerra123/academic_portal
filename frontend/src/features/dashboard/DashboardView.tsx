@@ -20,6 +20,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { DashboardSkeleton } from "@/components/ui/DashboardSkeleton";
 
 export type CommandCenterSummary = {
   activeStudents: number;
@@ -46,6 +47,7 @@ import type { AttendanceSessionCard } from "@/features/attendance-posting/Attend
 import type { WorkloadSummary } from "@/features/workload/StaffWorkloadView";
 import { RequestDashboardCard } from "@/features/requests/RequestDashboardCard";
 import { getTodayDayCode } from "@/features/my-timetable/utils";
+import { SubjectTeacherDashboard } from "./SubjectTeacherDashboard";
 
 function todayIso() {
   const now = new Date();
@@ -136,11 +138,13 @@ export function DashboardView() {
     pending: number;
   } | null>(null);
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [adminViewMode, setAdminViewMode] = useState<"admin" | "teacher">("admin");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const scopeParams = useMemo(() => {
     const params = new URLSearchParams();
+    if (filters.date) params.set("date", filters.date);
     if (filters.collegeId !== "all") params.set("collegeId", String(filters.collegeId));
     if (filters.courseId !== "all") params.set("courseId", String(filters.courseId));
     if (filters.branchId !== "all") params.set("branchId", String(filters.branchId));
@@ -205,7 +209,7 @@ export function DashboardView() {
 
         if (canAttendance) {
           const attParams = new URLSearchParams(scopeParams);
-          attParams.set("date", todayIso());
+          attParams.set("date", filters.date || todayIso());
           if (teachingStaffOnly) {
             attParams.set("scope", "mine");
           }
@@ -261,11 +265,14 @@ export function DashboardView() {
                   weekDays?: Array<{ classCount: number; dayOfWeek: string }>;
                 } | null) => {
                   if (cancelled || !data?.summary) return;
-                  const todayCode = getTodayDayCode();
+                  const selectedDateObj = filters.date ? new Date(filters.date + "T00:00:00") : new Date();
+                  const dayIdx = isNaN(selectedDateObj.getTime()) ? new Date().getDay() : selectedDateObj.getDay();
+                  const dayCodes = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+                  const targetDayCode = dayCodes[dayIdx];
                   const classesToday =
-                    todayCode === "SUN"
+                    targetDayCode === "SUN"
                       ? 0
-                      : data.weekDays?.find((day) => day.dayOfWeek === todayCode)?.classCount ?? 0;
+                      : data.weekDays?.find((day) => day.dayOfWeek === targetDayCode)?.classCount ?? 0;
                   setMyTimetableSummary({
                     periodsThisWeek: data.summary.periodsThisWeek,
                     subjects: data.summary.subjects,
@@ -324,7 +331,7 @@ export function DashboardView() {
     return () => {
       cancelled = true;
     };
-  }, [canDashboard, canAttendance, canAttendanceAnalytics, canWorkload, canTimetable, scopeParams, teachingStaffOnly, hasAnyPermission]);
+  }, [canDashboard, canAttendance, canAttendanceAnalytics, canWorkload, canTimetable, scopeParams, teachingStaffOnly, hasAnyPermission, filters.date]);
 
   const filteredFacultyList = useMemo(() => {
     if (!workloadData?.faculty) return [];
@@ -367,13 +374,43 @@ export function DashboardView() {
   }, [authorization]);
 
   if (loading && !summary && !attendance && !myTimetableSummary) {
-    return <LoadingAnimation label="Loading dashboard…" />;
+    return <DashboardSkeleton />;
+  }
+
+  if (teachingStaffOnly || adminViewMode === "teacher") {
+    return (
+      <div className="space-y-4">
+        {!teachingStaffOnly ? (
+          <div className="flex items-center justify-between bg-blue-50/80 border border-blue-200/90 px-4 py-2.5 rounded-xl shadow-2xs">
+            <div className="flex items-center gap-2 text-xs font-semibold text-blue-900">
+              <Sparkles className="h-4 w-4 text-blue-600" />
+              <span>Previewing <strong>Subject Teacher Dashboard</strong> (Instance View)</span>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setAdminViewMode("admin")}
+              className="text-xs h-7.5 px-3 font-semibold"
+            >
+              Back to Command Center
+            </Button>
+          </div>
+        ) : null}
+        <SubjectTeacherDashboard
+          userName={user?.name || "Faculty Member"}
+          departmentName={(user as { department?: string })?.department || "Department of CSE"}
+          roleLabel={authorization?.roles?.[0]?.label || "Subject Teacher"}
+          academicYear={filters.academicYear}
+          date={filters.date}
+        />
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-12">
       {/* SECTION A — HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-navy-900 tracking-tight">
             {greeting}, {user?.name || "Faculty"} 👋
@@ -382,6 +419,17 @@ export function DashboardView() {
           {error ? (
             <p className="mt-1.5 text-xs text-red-600 font-medium">{error}</p>
           ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setAdminViewMode("teacher")}
+            className="text-xs h-8 font-semibold flex items-center gap-1.5 border-slate-300 hover:bg-slate-50"
+          >
+            <GraduationCap className="h-4 w-4 text-brand-600" />
+            Subject Teacher Dashboard
+          </Button>
         </div>
       </div>
 

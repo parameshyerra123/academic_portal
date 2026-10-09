@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
+import { ContentCardSkeleton } from "@/components/ui/CardSkeleton";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -155,7 +156,7 @@ export function WorkloadThresholdsSettingsView() {
 
       {error ? <p className="mb-3 text-sm text-critical">{error}</p> : null}
       {message ? <p className="mb-3 text-sm text-emerald-700">{message}</p> : null}
-      {loading ? <p className="mb-3 text-sm text-slate-500">Loading thresholds…</p> : null}
+      {loading ? <ContentCardSkeleton contentHeight="h-56" /> : null}
 
       {!loading && settings ? (
         <>

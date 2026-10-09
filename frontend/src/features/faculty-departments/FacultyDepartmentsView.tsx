@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import {
@@ -388,28 +390,37 @@ export function FacultyDepartmentsView() {
       />
 
       {error && <p className="mb-3 text-sm text-critical">{error}</p>}
-      {loading && <p className="mb-3 text-sm text-slate-500">Loading from HRMS…</p>}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total Faculty</p>
-          <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.totalFaculty}</p>
-          <p className="mt-1 text-xs text-slate-500">
-            {usingDefaultGroups
-              ? "Teaching-group defaults (Settings)"
-              : `From ${enabledGroupCount} enabled group${enabledGroupCount === 1 ? "" : "s"}`}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Linked (AP)</p>
-          <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.linkedCount}</p>
-          <p className="mt-1 text-xs text-slate-500">In ap_staff_link</p>
-        </Card>
-        <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Not yet linked</p>
-          <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.unlinkedCount}</p>
-          <p className="mt-1 text-xs text-slate-500">No timetable assignment yet</p>
-        </Card>
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <Card>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total Faculty</p>
+              <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.totalFaculty}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {usingDefaultGroups
+                  ? "Teaching-group defaults (Settings)"
+                  : `From ${enabledGroupCount} enabled group${enabledGroupCount === 1 ? "" : "s"}`}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Linked (AP)</p>
+              <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.linkedCount}</p>
+              <p className="mt-1 text-xs text-slate-500">In ap_staff_link</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Not yet linked</p>
+              <p className="mt-2 text-2xl font-semibold text-navy-900">{kpis.unlinkedCount}</p>
+              <p className="mt-1 text-xs text-slate-500">No timetable assignment yet</p>
+            </Card>
+          </>
+        )}
       </div>
 
       {view === "departments" ? (
@@ -582,7 +593,9 @@ export function FacultyDepartmentsView() {
             ) : null}
           </div>
 
-          {sortedDepartments.length === 0 ? (
+          {loading ? (
+            <TableSkeleton columns={5} rows={8} showHeader />
+          ) : sortedDepartments.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center sm:p-12">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                 <Search className="h-6 w-6" />
@@ -838,11 +851,14 @@ export function FacultyDepartmentsView() {
             <span className="ml-auto self-center text-xs text-slate-500">{pageLabel}</span>
           </div>
 
-          <DataTable
-            rows={faculty}
-            rowKey={(r) => r.hrmsEmployeeId}
-            emptyMessage="No faculty match the current filters."
-            mobileRender={(row) => (
+          {loading && faculty.length === 0 ? (
+            <TableSkeleton columns={6} rows={8} showHeader />
+          ) : (
+            <DataTable
+              rows={faculty}
+              rowKey={(r) => r.hrmsEmployeeId}
+              emptyMessage="No faculty match the current filters."
+              mobileRender={(row) => (
               <div className="flex flex-col gap-1">
                 <MobileDataCardHeader
                   title={row.name}
@@ -896,6 +912,7 @@ export function FacultyDepartmentsView() {
               },
             ]}
           />
+        )}
 
           <div className="mt-3 flex items-center justify-between gap-2">
             <p className="text-xs text-slate-500">

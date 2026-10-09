@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
 import { useRequestStats } from "./useRequestStats";
 
 type Props = {
@@ -40,9 +41,9 @@ export function RequestDashboardCard({
       </div>
 
       {loading ? (
-        <div className="grid animate-pulse grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-16 rounded-md bg-slate-100" />
+            <StatCardSkeleton key={index} compact />
           ))}
         </div>
       ) : error || !stats ? (

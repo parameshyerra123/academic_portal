@@ -12,6 +12,7 @@ import {
   listDepartmentsWithFaculty,
   listFaculty,
 } from "../services/faculty.service.js";
+import { getSubjectTeacherDashboardData } from "../services/subject-teacher-dashboard.service.js";
 
 export const facultyRouter = Router();
 
@@ -140,6 +141,45 @@ facultyRouter.get(
         return;
       }
       res.json(detail);
+    } catch (error) {
+      const status = statusFromAuthzError(error);
+      if (status === 401 || status === 403) {
+        res.status(status).json({ message: (error as Error).message || "Forbidden" });
+        return;
+      }
+      next(error);
+    }
+  },
+);
+
+facultyRouter.get(
+  "/dashboard",
+  requirePermission(
+    "faculty.view",
+    "attendance.view",
+    "attendance.post",
+    "my_timetable.view",
+    "dashboard.view",
+  ),
+  async (req: AuthedRequest, res, next) => {
+    try {
+      const authz = getAuthz(req);
+      const facultyStaffLinkId = req.query.facultyStaffLinkId
+        ? Number(req.query.facultyStaffLinkId)
+        : undefined;
+      const date = typeof req.query.date === "string" ? req.query.date : undefined;
+      const academicYear =
+        typeof req.query.academicYear === "string" ? req.query.academicYear : undefined;
+      const semester = typeof req.query.semester === "string" ? req.query.semester : undefined;
+
+      const data = await getSubjectTeacherDashboardData(authz, {
+        facultyStaffLinkId,
+        date,
+        academicYear,
+        semester,
+      });
+
+      res.json(data);
     } catch (error) {
       const status = statusFromAuthzError(error);
       if (status === 401 || status === 403) {

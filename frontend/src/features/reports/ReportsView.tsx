@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AttendanceAnalyticsView } from "@/features/attendance-analytics/AttendanceAnalyticsView";
 import { StaffWorkloadView } from "@/features/workload/StaffWorkloadView";
@@ -1241,14 +1242,19 @@ function DepartmentTimetableReport() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td
-                      colSpan={2}
-                      className="px-4 py-6 text-center text-slate-500"
-                    >
-                      Loading colleges and schedules...
-                    </td>
-                  </tr>
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <tr key={i} className="border-b border-border/80">
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="h-4 w-4 rounded" variant="subtle" />
+                          <Skeleton className="h-4 w-48 sm:w-64 rounded" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 text-right">
+                        <Skeleton className="h-7 w-20 rounded-md ml-auto" variant="subtle" />
+                      </td>
+                    </tr>
+                  ))
                 ) : (
                   displayedColleges.map((college) => {
                     const isCollegeOpen = expandedCollegeIds.has(college.id);

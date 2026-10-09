@@ -5,6 +5,8 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
+import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { DataTable } from "@/components/ui/DataTable";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
@@ -171,10 +173,21 @@ export function ExaminationsView() {
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Exams" value={loading ? "—" : rows.length} />
-        <StatCard label="Published" value={loading ? "—" : publishedCount} tone="success" />
-        <StatCard label="Applications" value={loading ? "—" : applicationCount} />
-        <StatCard label="Source" value="EMS" tone="info" />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard label="Exams" value={rows.length} />
+            <StatCard label="Published" value={publishedCount} tone="success" />
+            <StatCard label="Applications" value={applicationCount} />
+            <StatCard label="Source" value="EMS" tone="info" />
+          </>
+        )}
       </div>
 
       <FilterBar>
@@ -331,9 +344,7 @@ export function ExaminationsView() {
       ) : null}
 
       {loading ? (
-        <div className="rounded-lg border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-slate-500">
-          Loading examinations from EMS…
-        </div>
+        <TableSkeleton columns={6} rows={6} showHeader />
       ) : null}
 
       {!loading && !error && rows.length === 0 ? (

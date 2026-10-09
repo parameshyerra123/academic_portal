@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { InlineLoader } from "@/components/ui/InlineLoader";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { canRaiseRequestForOthers, isStaffOnlyRequester } from "@/lib/teaching-scope";
@@ -482,7 +483,9 @@ export function SubstitutionRequestForm({ onCancel }: Props) {
             </div>
 
             {searchingEmployees ? (
-              <p className="text-xs text-slate-500">Loading staff…</p>
+              <div className="py-1">
+                <InlineLoader size="sm" label="Searching staff…" />
+              </div>
             ) : null}
 
             <div className="overflow-hidden rounded-md border border-border bg-white">
@@ -592,7 +595,9 @@ export function SubstitutionRequestForm({ onCancel }: Props) {
         ) : null}
 
         {resolvingClass ? (
-          <p className="text-sm text-slate-500">Loading class details…</p>
+          <div className="py-2">
+            <InlineLoader label="Loading class details…" />
+          </div>
         ) : null}
 
         {resolvedClass ? (

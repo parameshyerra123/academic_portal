@@ -50,7 +50,16 @@ export type AcademicMasters = {
   };
 };
 
+function todayIso() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export type AcademicFilters = {
+  date: string;
   academicYear: string;
   collegeId: number | "all";
   courseId: number | "all";
@@ -78,13 +87,14 @@ export type StudentsListStats = {
 const STORAGE_KEY = "academic-portal-filters-v4";
 
 const defaultFilters: AcademicFilters = {
+  date: todayIso(),
   academicYear: "",
   collegeId: "all",
   courseId: "all",
   branchId: "all",
   batch: "all",
   year: "all",
-  semester: "all",
+  semester: 1,
   section: "all",
   studentStatus: "Regular",
   q: "",
@@ -115,7 +125,9 @@ function readStoredFilters(): AcademicFilters | null {
       !parsed.studentStatus || parsed.studentStatus === "all"
         ? "Regular"
         : parsed.studentStatus;
-    return { ...defaultFilters, ...parsed, studentStatus, q: "" };
+    const date = parsed.date || todayIso();
+    const semester = parsed.semester != null ? parsed.semester : 1;
+    return { ...defaultFilters, ...parsed, date, semester, studentStatus, q: "" };
   } catch {
     return null;
   }
@@ -212,7 +224,9 @@ export function AcademicProvider({ children }: { children: React.ReactNode }) {
             branchId = "all";
           }
 
-          return { ...prev, academicYear, collegeId, branchId };
+          const date = prev.date || todayIso();
+          const semester = prev.semester === "all" ? 1 : (prev.semester || 1);
+          return { ...prev, academicYear, collegeId, branchId, date, semester };
         });
       } catch {
         if (!cancelled) setMasters(null);

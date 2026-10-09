@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { apiFetch } from "@/lib/api";
 import { Check, Save, Send, AlertCircle } from "lucide-react";
 
@@ -287,7 +288,7 @@ export function InternalMarksEntryModal({
         )}
 
         {loading ? (
-          <LoadingAnimation label="Loading student marks roster..." />
+          <TableSkeleton columns={5} rows={6} showHeader />
         ) : students.length === 0 ? (
           <div className="py-8 text-center text-sm text-slate-500">
             No students found for this subject and branch scope.
