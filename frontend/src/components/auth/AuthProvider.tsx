@@ -18,6 +18,7 @@ export type AuthUser = {
   username: string;
   hrmsEmployeeId: string | null;
   hrmsUserId: string;
+  profilePhoto?: string | null;
 };
 
 export type AuthRole = {

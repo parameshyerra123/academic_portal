@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { FacultyAvatar } from "@/components/ui/FacultyAvatar";
 
 type FacultyRow = {
   hrmsEmployeeId: string;
@@ -41,6 +42,7 @@ type FacultyRow = {
   employeeGroup: string;
   isActive: boolean;
   linkStatus: "linked" | "unlinked";
+  profilePhoto?: string | null;
 };
 
 type Department = {
@@ -859,16 +861,26 @@ export function FacultyDepartmentsView() {
               rowKey={(r) => r.hrmsEmployeeId}
               emptyMessage="No faculty match the current filters."
               mobileRender={(row) => (
-              <div className="flex flex-col gap-1">
-                <MobileDataCardHeader
-                  title={row.name}
-                  secondary={row.code}
-                  status={
-                    <StatusBadge
-                      status={row.staffLinkId ? "active" : "inactive"}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2.5">
+                  <FacultyAvatar
+                    name={row.name}
+                    photo={row.profilePhoto}
+                    hrmsEmployeeId={row.hrmsEmployeeId}
+                    size="sm"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <MobileDataCardHeader
+                      title={row.name}
+                      secondary={row.code}
+                      status={
+                        <StatusBadge
+                          status={row.staffLinkId ? "active" : "inactive"}
+                        />
+                      }
                     />
-                  }
-                />
+                  </div>
+                </div>
                 <MobileDataCardGrid>
                   <MobileDataCardField label="Division" value={row.division} />
                   <MobileDataCardField label="Department" value={row.department} />
@@ -882,9 +894,17 @@ export function FacultyDepartmentsView() {
                 key: "name",
                 header: "Faculty",
                 render: (row) => (
-                  <div>
-                    <p className="font-medium text-navy-900">{row.name}</p>
-                    <p className="text-xs text-slate-500">{row.code}</p>
+                  <div className="flex items-center gap-2.5">
+                    <FacultyAvatar
+                      name={row.name}
+                      photo={row.profilePhoto}
+                      hrmsEmployeeId={row.hrmsEmployeeId}
+                      size="sm"
+                    />
+                    <div>
+                      <p className="font-semibold text-navy-900">{row.name}</p>
+                      <p className="text-xs text-slate-500">{row.code}</p>
+                    </div>
                   </div>
                 ),
               },

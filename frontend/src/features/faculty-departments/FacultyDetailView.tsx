@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { PageSkeleton } from "@/components/ui/PageSkeleton";
 import { apiFetch } from "@/lib/api";
-import { StudentAvatar } from "@/features/students/StudentAvatar";
+import { FacultyAvatar } from "@/components/ui/FacultyAvatar";
 import { FacultyMenteesPanel } from "./FacultyMenteesPanel";
 import { normalizeSectionName } from "./mentoring-section-utils";
 
@@ -57,6 +57,7 @@ type FacultyDetail = {
   employeeGroup: string;
   isActive: boolean;
   linkStatus: "linked" | "unlinked";
+  profilePhoto?: string | null;
   assignments: Assignment[];
   workload: Workload | null;
   source: string;
@@ -166,7 +167,13 @@ export function FacultyDetailView({ hrmsId }: Props) {
 
       <Card className="mb-4">
         <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
-          <StudentAvatar name={faculty.name} photo={null} size="lg" className="mx-auto sm:mx-0" />
+          <FacultyAvatar
+            name={faculty.name}
+            photo={faculty.profilePhoto}
+            hrmsEmployeeId={faculty.hrmsEmployeeId}
+            size="lg"
+            className="mx-auto sm:mx-0 shadow-sm"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">

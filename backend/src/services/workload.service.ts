@@ -150,6 +150,7 @@ type HrmsStaffMeta = {
   department: string;
   division: string;
   designation: string;
+  profilePhoto?: string | null;
 };
 
 async function loadHrmsStaffMetaMap(hrmsIds: string[]) {
@@ -179,6 +180,7 @@ async function loadHrmsStaffMetaMap(hrmsIds: string[]) {
         department: profile.department,
         division: profile.division,
         designation: profile.designation,
+        profilePhoto: profile.profilePhoto ?? null,
       });
     }
   } catch {
@@ -394,6 +396,7 @@ function aggregateFaculty(
       department: resolveDepartment(first, hrmsMap),
       division: hrmsMap.get(first.hrms_employee_id)?.division ?? "—",
       designation: hrmsMap.get(first.hrms_employee_id)?.designation ?? "—",
+      profilePhoto: hrmsMap.get(first.hrms_employee_id)?.profilePhoto ?? null,
       subjects: subjects.size,
       sections: sections.size,
       periodsPerWeek,

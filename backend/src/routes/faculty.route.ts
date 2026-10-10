@@ -191,6 +191,24 @@ facultyRouter.get(
   },
 );
 
+facultyRouter.get(
+  "/:hrmsId/photo",
+  requirePermission("faculty.view"),
+  async (req: AuthedRequest, res, next) => {
+    try {
+      const hrmsId = Array.isArray(req.params.hrmsId) ? req.params.hrmsId[0] : req.params.hrmsId;
+      const detail = await getFacultyDetail(String(hrmsId));
+      if (!detail) {
+        res.status(404).json({ message: "Faculty not found" });
+        return;
+      }
+      res.json({ hrmsEmployeeId: String(hrmsId), photo: detail.profilePhoto ?? null });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 facultyRouter.get("/:hrmsId", requirePermission("faculty.view"), async (req: AuthedRequest, res, next) => {
   try {
     const hrmsId = Array.isArray(req.params.hrmsId) ? req.params.hrmsId[0] : req.params.hrmsId;

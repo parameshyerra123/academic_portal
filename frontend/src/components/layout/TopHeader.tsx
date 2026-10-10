@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Menu, Sparkles, Calendar, ChevronDown } from "lucide-react";
+import { Bell, Menu, Calendar, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { breadcrumbsForPath } from "@/lib/navigation";
@@ -8,6 +8,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { isTeachingStaffOnly } from "@/lib/teaching-scope";
 import { useAcademicContext } from "@/components/layout/AcademicProvider";
 import { useLoading } from "@/context/LoadingContext";
+import { FacultyAvatar } from "@/components/ui/FacultyAvatar";
+import { cn } from "@/lib/cn";
 
 type Props = {
   onMenuClick: () => void;
@@ -33,8 +35,8 @@ export function TopHeader({ onMenuClick }: Props) {
 
   return (
     <header className="sticky top-0 z-20 shrink-0 border-b border-border/80 bg-white/95 backdrop-blur-md shadow-2xs">
-      <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2.5 px-2.5 py-1.5 sm:px-5 sm:py-2.5">
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 py-2 sm:px-6 sm:py-2.5">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
           <button
             type="button"
             className="rounded-lg bg-slate-100 p-1.5 sm:p-2 text-slate-700 hover:bg-slate-200 lg:hidden active:scale-95 transition-transform"
@@ -44,36 +46,41 @@ export function TopHeader({ onMenuClick }: Props) {
             <Menu className="h-4 w-4" />
           </button>
 
-          {/* Mobile Title View */}
+          {/* Mobile Title View with increased text size */}
           <div className="flex sm:hidden items-center gap-1.5 min-w-0">
-            <span className="truncate text-xs font-bold text-navy-900 tracking-tight">
+            <span className="truncate text-sm sm:text-base font-bold text-navy-900 tracking-tight">
               {currentTitle}
             </span>
             {teachingStaffOnly && (
-              <span className="shrink-0 rounded-full bg-brand-50 px-1.5 py-0.2 text-[9.5px] font-bold text-brand-700 border border-brand-200">
+              <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand-700 border border-brand-200">
                 Staff
               </span>
             )}
           </div>
 
-          {/* Desktop Breadcrumbs View */}
-          <p className="hidden sm:block truncate text-sm text-slate-500">
-            <Link href="/dashboard" className="hover:text-slate-700">
+          {/* Desktop Breadcrumbs View with increased text size */}
+          <div className="hidden sm:flex items-center gap-1.5 truncate text-[14.5px] lg:text-[15.5px] font-medium text-slate-600">
+            <Link href="/dashboard" className="hover:text-navy-900 transition-colors">
               Academic Portal
             </Link>
-            {breadcrumbs.map((segment, index) => (
-              <span key={`${segment.label}-${index}`}>
-                <span className="text-slate-300"> / </span>
-                {segment.href ? (
-                  <Link href={segment.href} className="font-medium text-slate-700 hover:text-navy-900">
-                    {segment.label}
-                  </Link>
-                ) : (
-                  <span className="font-medium text-slate-700">{segment.label}</span>
-                )}
-              </span>
-            ))}
-          </p>
+            {breadcrumbs.map((segment, index) => {
+              const isLast = index === breadcrumbs.length - 1;
+              return (
+                <span key={`${segment.label}-${index}`} className="flex items-center gap-1.5 truncate">
+                  <span className="text-slate-300 font-normal select-none">/</span>
+                  {segment.href && !isLast ? (
+                    <Link href={segment.href} className="hover:text-navy-900 transition-colors">
+                      {segment.label}
+                    </Link>
+                  ) : (
+                    <span className={cn("truncate", isLast ? "font-bold text-navy-900" : "font-medium text-slate-700")}>
+                      {segment.label}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
         </div>
 
         {/* Date, Academic Year, and Semester Controls in Top Header */}
@@ -128,8 +135,7 @@ export function TopHeader({ onMenuClick }: Props) {
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 sm:gap-2.5 ml-auto sm:ml-0">
-
+        <div className="flex items-center gap-2 sm:gap-3 ml-auto sm:ml-0">
           {activeCount > 0 && (
             <div
               role="status"
@@ -138,13 +144,6 @@ export function TopHeader({ onMenuClick }: Props) {
             >
               <span className="h-2 w-2 rounded-full border-[1.5px] border-blue-700 border-t-transparent animate-spin shrink-0" />
               <span className="hidden sm:inline">Updating…</span>
-            </div>
-          )}
-
-          {teachingStaffOnly && (
-            <div className="hidden xl:flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/70 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Teaching Portal Live</span>
             </div>
           )}
 
@@ -157,14 +156,15 @@ export function TopHeader({ onMenuClick }: Props) {
             <Bell className="h-4 w-4" />
           </Link>
 
-          {/* User Profile Mini Badge */}
+          {/* User Profile Mini Badge rendering HRMS Photo */}
           {user?.name && (
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white shadow-2xs select-none"
-              title={user.name}
-            >
-              {user.name.charAt(0).toUpperCase()}
-            </div>
+            <FacultyAvatar
+              name={user.name}
+              photo={user.profilePhoto}
+              hrmsEmployeeId={user.hrmsEmployeeId}
+              size="sm"
+              className="cursor-default"
+            />
           )}
         </div>
       </div>

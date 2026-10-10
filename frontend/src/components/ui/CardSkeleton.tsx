@@ -6,13 +6,32 @@ import { cn } from "@/lib/cn";
 
 export interface StatCardSkeletonProps {
   compact?: boolean;
+  layout?: "vertical" | "horizontal";
   className?: string;
 }
 
 /**
  * Skeleton placeholder that strictly matches the dimensions of StatCard.
  */
-export function StatCardSkeleton({ compact = false, className }: StatCardSkeletonProps) {
+export function StatCardSkeleton({ compact = false, layout = "vertical", className }: StatCardSkeletonProps) {
+  if (layout === "horizontal") {
+    return (
+      <div
+        className={cn(
+          "rounded-xl sm:rounded-2xl border border-slate-200/90 bg-white p-2.5 sm:p-3.5 shadow-xs flex items-center gap-2 sm:gap-3",
+          className
+        )}
+      >
+        <Skeleton className="h-8 w-8 sm:h-11 sm:w-11 shrink-0 rounded-lg sm:rounded-xl" variant="subtle" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <Skeleton className="h-2.5 sm:h-3 w-16 sm:w-20 rounded" />
+          <Skeleton className="h-5 sm:h-6 w-12 sm:w-16 rounded font-black mt-0.5" />
+          <Skeleton className="h-2 sm:h-2.5 w-14 sm:w-20 rounded mt-0.5" variant="subtle" />
+        </div>
+      </div>
+    );
+  }
+
   if (compact) {
     return (
       <div

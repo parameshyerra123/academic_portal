@@ -478,7 +478,15 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
                 title={user?.name || "Profile"}
                 aria-label="Profile"
               >
-                <UserRound className="h-4 w-4" />
+                {user?.profilePhoto ? (
+                  <img
+                    src={user.profilePhoto}
+                    alt={user?.name || "Profile"}
+                    className="h-7 w-7 rounded-full object-cover border border-white/20"
+                  />
+                ) : (
+                  <UserRound className="h-4 w-4" />
+                )}
               </button>
               <button
                 type="button"
@@ -505,8 +513,16 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapsed }: Props) 
                 className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition hover:bg-sidebar-hover disabled:cursor-default disabled:hover:bg-transparent"
                 title={canOpenProfile ? "View / edit your profile" : undefined}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sidebar-active text-white">
-                  <UserRound className="h-4 w-4" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-white overflow-hidden border border-white/10">
+                  {user?.profilePhoto ? (
+                    <img
+                      src={user.profilePhoto}
+                      alt={user?.name || "Profile"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <UserRound className="h-4 w-4" />
+                  )}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-white">

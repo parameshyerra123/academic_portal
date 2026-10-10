@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { StatCardSkeleton } from "@/components/ui/CardSkeleton";
 import { TableSkeleton } from "@/components/ui/TableSkeleton";
 import { apiFetch } from "@/lib/api";
+import { FacultyAvatar } from "@/components/ui/FacultyAvatar";
 import {
   Printer,
   ChevronDown,
@@ -45,6 +46,7 @@ export type FacultyLoad = {
   name: string;
   department: string;
   division: string;
+  profilePhoto?: string | null;
   periodsPerWeek: number;
   hoursPerWeek: number;
   hoursByDay: {
@@ -409,10 +411,13 @@ export function StaffWorkloadView({ embedded = false }: { embedded?: boolean }) 
                 className="rounded-xl border border-border/80 bg-white p-3 shadow-2xs space-y-2.5"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-900 text-white font-bold text-xs">
-                      {row.name.charAt(0)}
-                    </div>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FacultyAvatar
+                      name={row.name}
+                      photo={row.profilePhoto}
+                      hrmsEmployeeId={row.hrmsEmployeeId}
+                      size="xs"
+                    />
                     <div className="min-w-0">
                       <p className="font-bold text-navy-900 text-xs truncate">{row.name}</p>
                       <p className="text-[10px] text-slate-500 truncate">{row.department} {row.code ? `• ${row.code}` : ""}</p>
@@ -522,10 +527,13 @@ export function StaffWorkloadView({ embedded = false }: { embedded?: boolean }) 
                   <Fragment key={row.id}>
                     <tr className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy-900 text-white font-semibold text-xs">
-                            {row.name.charAt(0)}
-                          </div>
+                        <div className="flex items-center gap-2.5">
+                          <FacultyAvatar
+                            name={row.name}
+                            photo={row.profilePhoto}
+                            hrmsEmployeeId={row.hrmsEmployeeId}
+                            size="sm"
+                          />
                           <div>
                             <p className="font-semibold text-navy-900">{row.name}</p>
                             <p className="text-[10px] text-slate-400 font-mono">{row.code || row.division}</p>

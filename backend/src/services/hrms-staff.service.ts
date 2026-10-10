@@ -12,6 +12,7 @@ export type HrmsStaffProfile = {
   employeeGroup: string;
   employeeGroupId: string | null;
   isActive: boolean;
+  profilePhoto?: string | null;
 };
 
 export type HrmsOrgLookups = {
@@ -178,6 +179,8 @@ export const HRMS_EMPLOYEE_PROJECTION = {
   "dynamicFields.designation_name": 1,
   "dynamicFields.college_name": 1,
   "dynamicFields.campus_name": 1,
+  profilePhoto: 1,
+  "dynamicFields.profilePhoto": 1,
 } as const;
 
 const ORG_LOOKUPS_TTL_MS = 5 * 60 * 1000;
@@ -338,6 +341,12 @@ export function extractHrmsStaffProfile(
     doc.is_active == null ||
     doc.is_active === undefined;
 
+  const profilePhoto =
+    (typeof doc.profilePhoto === "string" && doc.profilePhoto.trim()) ||
+    (typeof dynamic.profilePhoto === "string" && dynamic.profilePhoto.trim()) ||
+    (typeof allData.profilePhoto === "string" && allData.profilePhoto.trim()) ||
+    null;
+
   return {
     hrmsId,
     name,
@@ -348,6 +357,7 @@ export function extractHrmsStaffProfile(
     employeeGroup,
     employeeGroupId,
     isActive,
+    profilePhoto,
   };
 }
 

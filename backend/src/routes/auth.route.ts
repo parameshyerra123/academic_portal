@@ -15,11 +15,91 @@ import {
   recordFailedLoginAttempt,
 } from "../middleware/login-rate-limit.js";
 
+import { ObjectId } from "mongodb";
+import { getHrmsDb } from "../db/pools.js";
+
 export const authRouter = Router();
 
-export function sendCurrentUser(req: AuthedRequest, res: Response) {
+const userPhotoCache = new Map<string, { photo: string | null; expiresAt: number }>();
+
+async function getUserProfilePhoto(user: {
+  id: number;
+  hrmsEmployeeId: string | null;
+  hrmsUserId: string;
+  username: string;
+}): Promise<string | null> {
+  const cacheKey = `user-${user.id}-${user.hrmsEmployeeId || ""}-${user.hrmsUserId}`;
+  const hit = userPhotoCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) {
+    return hit.photo;
+  }
+
+  let photo: string | null = null;
+  try {
+    const db = await getHrmsDb();
+
+    // 1. Try HRMS employees collection by emp_no / employeeId
+    if (user.hrmsEmployeeId) {
+      const trimmed = user.hrmsEmployeeId.trim();
+      const orList: Record<string, unknown>[] = [
+        { emp_no: trimmed },
+        { employeeId: trimmed },
+      ];
+      if (/^\d+$/.test(trimmed)) {
+        orList.push({ emp_no: Number(trimmed) }, { employeeId: Number(trimmed) });
+      }
+      const emp = await db.collection("employees").findOne(
+        { $or: orList },
+        { projection: { profilePhoto: 1, "dynamicFields.profilePhoto": 1 } },
+      );
+      if (emp) {
+        photo =
+          (typeof emp.profilePhoto === "string" && emp.profilePhoto.trim()) ||
+          (typeof (emp.dynamicFields as Record<string, unknown> | undefined)?.profilePhoto === "string" &&
+            String((emp.dynamicFields as Record<string, unknown>).profilePhoto).trim()) ||
+          null;
+      }
+    }
+
+    // 2. Try HRMS users collection by ObjectId or email/username
+    if (!photo && user.hrmsUserId) {
+      const uid = user.hrmsUserId.startsWith("employee:")
+        ? user.hrmsUserId.slice("employee:".length)
+        : user.hrmsUserId;
+      if (ObjectId.isValid(uid)) {
+        const u = await db.collection("users").findOne(
+          { _id: new ObjectId(uid) },
+          { projection: { profilePhoto: 1 } },
+        );
+        if (u && typeof u.profilePhoto === "string" && u.profilePhoto.trim()) {
+          photo = u.profilePhoto.trim();
+        }
+      }
+    }
+
+    // 3. Fallback: Try employees collection by username if username looks like emp_no
+    if (!photo && user.username && /^\d+$/.test(user.username)) {
+      const emp = await db.collection("employees").findOne(
+        { $or: [{ emp_no: user.username }, { emp_no: Number(user.username) }] },
+        { projection: { profilePhoto: 1 } },
+      );
+      if (emp && typeof emp.profilePhoto === "string" && emp.profilePhoto.trim()) {
+        photo = emp.profilePhoto.trim();
+      }
+    }
+  } catch {
+    // Graceful fallback if HRMS is temporarily unreachable
+  }
+
+  userPhotoCache.set(cacheKey, { photo, expiresAt: Date.now() + 5 * 60 * 1000 });
+  return photo;
+}
+
+export async function sendCurrentUser(req: AuthedRequest, res: Response) {
   const user = req.authUser!;
   const authz = req.authz;
+  const profilePhoto = await getUserProfilePhoto(user);
+
   res.json({
     user: {
       id: user.id,
@@ -28,6 +108,7 @@ export function sendCurrentUser(req: AuthedRequest, res: Response) {
       username: user.username,
       hrmsEmployeeId: user.hrmsEmployeeId,
       hrmsUserId: user.hrmsUserId,
+      profilePhoto: profilePhoto ?? null,
     },
     authorization: {
       roles: (authz?.roles ?? []).map((role) => ({

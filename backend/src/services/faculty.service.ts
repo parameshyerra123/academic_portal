@@ -36,6 +36,7 @@ export type FacultyListItem = {
   employeeGroup: string;
   isActive: boolean;
   linkStatus: "linked" | "unlinked";
+  profilePhoto?: string | null;
 };
 
 type StaffLinkRow = RowDataPacket & {
@@ -134,6 +135,7 @@ async function loadFacultyRows(): Promise<FacultyListItem[]> {
         employeeGroup: emp.employeeGroup,
         isActive: emp.isActive,
         linkStatus: link ? ("linked" as const) : ("unlinked" as const),
+        profilePhoto: emp.profilePhoto ?? null,
       });
     }
 
@@ -446,6 +448,7 @@ export async function getFacultyDetail(hrmsEmployeeId: string) {
     employeeGroup,
     isActive: hrms?.isActive ?? true,
     linkStatus: link ? "linked" : "unlinked",
+    profilePhoto: hrms?.profilePhoto ?? null,
     assignments,
     workload,
     source:
