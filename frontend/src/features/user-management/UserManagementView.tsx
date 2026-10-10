@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, UserRound } from "lucide-react";
+import { RefreshCw, UserRound, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -104,6 +104,7 @@ export function UserManagementView() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [stats, setStats] = useState({ total: 0, active: 0 });
   const [syncingTimetables, setSyncingTimetables] = useState(false);
+  const [syncingHrmsStaff, setSyncingHrmsStaff] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const colleges = masters?.colleges ?? [];
@@ -243,6 +244,34 @@ export function UserManagementView() {
       });
     } finally {
       setSyncingTimetables(false);
+    }
+  };
+
+  const handleSyncHrmsStaff = async () => {
+    if (!canManage) return;
+    setSyncingHrmsStaff(true);
+    setSyncResult(null);
+    try {
+      const response = await apiFetch("/users/sync-hrms-staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.message || "Failed to sync HRMS staff");
+      }
+      setSyncResult({
+        ok: true,
+        message: `HRMS Staff sync complete: ${data.totalHrmsTeachingStaff ?? 0} teaching staff scanned, ${data.syncedStaffCount ?? 0} staff accounts synchronized with Staff role.`,
+      });
+      await Promise.all([loadUsers(), loadStats()]);
+    } catch (err) {
+      setSyncResult({
+        ok: false,
+        message: err instanceof Error ? err.message : "Sync failed",
+      });
+    } finally {
+      setSyncingHrmsStaff(false);
     }
   };
 
@@ -404,20 +433,36 @@ export function UserManagementView() {
         actions={
           <div className="flex items-center gap-2">
             {canManage ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-12 border-slate-200 bg-white hover:bg-slate-50 text-navy-800 shadow-sm px-3 text-xs flex items-center gap-2"
-                disabled={syncingTimetables}
-                onClick={handleSyncTimetables}
-                title="Scan all active timetables to ensure teaching staff profiles exist and clean up unassigned roles"
-              >
-                <RefreshCw className={cn("h-4 w-4 text-cyan-600", syncingTimetables && "animate-spin")} />
-                <div className="text-left">
-                  <p className="font-semibold leading-tight text-navy-900">Sync Timetables</p>
-                  <p className="text-[10px] text-slate-500 leading-tight">Update staff roles</p>
-                </div>
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-12 border-slate-200 bg-white hover:bg-slate-50 text-navy-800 shadow-sm px-3 text-xs flex items-center gap-2"
+                  disabled={syncingHrmsStaff || syncingTimetables}
+                  onClick={handleSyncHrmsStaff}
+                  title="Import and update all HRMS teaching faculty accounts with the Staff role"
+                >
+                  <Users className={cn("h-4 w-4 text-emerald-600", syncingHrmsStaff && "animate-spin")} />
+                  <div className="text-left">
+                    <p className="font-semibold leading-tight text-navy-900">Sync HRMS Staff</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">All teaching staff</p>
+                  </div>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-12 border-slate-200 bg-white hover:bg-slate-50 text-navy-800 shadow-sm px-3 text-xs flex items-center gap-2"
+                  disabled={syncingTimetables || syncingHrmsStaff}
+                  onClick={handleSyncTimetables}
+                  title="Scan all active timetables to ensure teaching staff profiles exist and clean up unassigned roles"
+                >
+                  <RefreshCw className={cn("h-4 w-4 text-cyan-600", syncingTimetables && "animate-spin")} />
+                  <div className="text-left">
+                    <p className="font-semibold leading-tight text-navy-900">Sync Timetables</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">Update timetable roles</p>
+                  </div>
+                </Button>
+              </>
             ) : null}
             <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center shadow-sm">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Total</p>

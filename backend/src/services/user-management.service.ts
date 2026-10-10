@@ -12,6 +12,7 @@ import {
   extractEmployeeEmail,
   extractHrmsStaffProfile,
   HRMS_EMPLOYEE_PROJECTION,
+  isTeachingGroup,
   loadHrmsOrgLookups,
 } from "./hrms-staff.service.js";
 import { mysqlDateTimeToIso } from "../lib/mysql-datetime.js";
@@ -1710,5 +1711,82 @@ export async function syncAllTimetableStaffUsers(input?: {
     deactivatedUsersCount,
   };
 }
+
+/**
+ * Synchronize all active HRMS teaching faculty into ap_users and ap_staff_link with the 'staff' role.
+ * Ensures all existing staff in HRMS or ap_staff_link receive active portal accounts with the 'staff' role.
+ */
+export async function syncAllHrmsTeachingStaffUsers(input?: {
+  actorUserId?: number | null;
+  ipAddress?: string | null;
+}): Promise<{
+  totalHrmsTeachingStaff: number;
+  syncedStaffCount: number;
+}> {
+  const db = await getHrmsDb();
+  const lookups = await loadHrmsOrgLookups(db);
+  const emps = await db
+    .collection("employees")
+    .find({
+      $or: [{ is_active: true }, { is_active: { $exists: false } }],
+    })
+    .project(HRMS_EMPLOYEE_PROJECTION)
+    .toArray();
+
+  let totalHrmsTeachingStaff = 0;
+  let syncedStaffCount = 0;
+
+  for (const raw of emps) {
+    const profile = extractHrmsStaffProfile(raw as Record<string, unknown>, lookups);
+    if (!isTeachingGroup(profile.employeeGroup)) {
+      continue;
+    }
+    totalHrmsTeachingStaff++;
+
+    try {
+      const res = await ensureStaffUserForSubjectAssignment({
+        hrmsEmployeeId: profile.hrmsId,
+        displayName: profile.name,
+        collegeId: 1,
+        actorUserId: input?.actorUserId,
+        ipAddress: input?.ipAddress,
+      });
+      if (res) {
+        syncedStaffCount++;
+      }
+    } catch (err) {
+      console.warn("Failed to ensure staff user for HRMS teaching employee", profile.hrmsId, err);
+    }
+  }
+
+  // Also ensure every record in ap_staff_link has an active staff account
+  const linkRows = await queryAcademic<
+    (RowDataPacket & { id: number; hrms_employee_id: string; display_name: string | null })[]
+  >(`SELECT id, hrms_employee_id, display_name FROM ap_staff_link`);
+
+  for (const sl of linkRows) {
+    try {
+      const res = await ensureStaffUserForSubjectAssignment({
+        facultyStaffLinkId: Number(sl.id),
+        hrmsEmployeeId: sl.hrms_employee_id,
+        displayName: sl.display_name,
+        collegeId: 1,
+        actorUserId: input?.actorUserId,
+        ipAddress: input?.ipAddress,
+      });
+      if (res) {
+        syncedStaffCount++;
+      }
+    } catch (err) {
+      console.warn("Failed to ensure staff user for ap_staff_link", sl.id, err);
+    }
+  }
+
+  return {
+    totalHrmsTeachingStaff,
+    syncedStaffCount,
+  };
+}
+
 
 

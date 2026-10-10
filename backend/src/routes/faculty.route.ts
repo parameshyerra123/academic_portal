@@ -12,7 +12,10 @@ import {
   listDepartmentsWithFaculty,
   listFaculty,
 } from "../services/faculty.service.js";
-import { getSubjectTeacherDashboardData } from "../services/subject-teacher-dashboard.service.js";
+import {
+  getSubjectStudentAttendanceDetails,
+  getSubjectTeacherDashboardData,
+} from "../services/subject-teacher-dashboard.service.js";
 
 export const facultyRouter = Router();
 
@@ -190,6 +193,59 @@ facultyRouter.get(
     }
   },
 );
+
+facultyRouter.get(
+  "/subject-attendance-details",
+  requirePermission(
+    "faculty.view",
+    "attendance.view",
+    "attendance.post",
+    "my_timetable.view",
+    "dashboard.view",
+  ),
+  async (req: AuthedRequest, res, next) => {
+    try {
+      const authz = getAuthz(req);
+      const subjectId = Number(req.query.subjectId);
+      if (!Number.isFinite(subjectId) || subjectId <= 0) {
+        res.status(400).json({ message: "subjectId is required" });
+        return;
+      }
+      const sectionName = str(req.query.sectionName) ?? str(req.query.section);
+      const branchId = num(req.query.branchId);
+      const academicYear = str(req.query.academicYear);
+      const semesterNumber = num(req.query.semesterNumber) ?? num(req.query.semester);
+      const yearOfStudy = num(req.query.yearOfStudy) ?? num(req.query.year);
+      const batch = str(req.query.batch);
+      const courseId = num(req.query.courseId);
+      const collegeId = num(req.query.collegeId);
+      const facultyStaffLinkId = num(req.query.facultyStaffLinkId);
+
+      const details = await getSubjectStudentAttendanceDetails(authz, {
+        subjectId,
+        sectionName,
+        branchId,
+        academicYear,
+        semesterNumber,
+        yearOfStudy,
+        batch,
+        courseId,
+        collegeId,
+        facultyStaffLinkId,
+      });
+
+      res.json(details);
+    } catch (error) {
+      const status = statusFromAuthzError(error);
+      if (status === 401 || status === 403) {
+        res.status(status).json({ message: (error as Error).message || "Forbidden" });
+        return;
+      }
+      next(error);
+    }
+  },
+);
+
 
 facultyRouter.get(
   "/:hrmsId/photo",

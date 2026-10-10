@@ -3,6 +3,7 @@ import { queryAcademic, queryStudent, queryExam } from "../db/pools.js";
 import { resolveStaffLinkIdForUser } from "../authz/faculty-self-scope.js";
 import type { AuthzContext } from "../authz/authorization.service.js";
 import { ensureSessionsForDate } from "./class-sessions.service.js";
+import { resolveSemesterWindow } from "./student-academic-dates.service.js";
 
 function todayIso() {
   const now = new Date();
@@ -142,6 +143,21 @@ export type SubjectTeacherDashboardData = {
     title: string;
     subtitle: string;
     countdown: string;
+  }>;
+  assignedSubjects: Array<{
+    subjectId: number;
+    subjectCode: string;
+    subjectName: string;
+    sectionName: string | null;
+    batch: string | null;
+    yearOfStudy: number | null;
+    semesterNumber: number | null;
+    branchId: number;
+    branchName: string;
+    courseName: string;
+    slotType: string;
+    weeklyPeriods: number;
+    studentCount: number;
   }>;
 };
 
@@ -373,6 +389,39 @@ export async function getSubjectTeacherDashboardData(
       }
     }
   }
+
+  // Resolve branch and course names for assigned subjects
+  const branchIds = [...new Set(assignedSubjects.map((s) => s.branch_id).filter(Boolean))];
+  const branchMap = new Map<number, { branchName: string; courseName: string }>();
+  if (branchIds.length > 0) {
+    try {
+      const bRows = await queryStudent<(RowDataPacket & { id: number; branch_name: string; course_name: string | null })[]>(
+        `SELECT b.id, b.name as branch_name, c.name as course_name FROM branches b LEFT JOIN courses c ON c.id = b.course_id WHERE b.id IN (${branchIds.map(() => "?").join(",")})`,
+        branchIds,
+      );
+      for (const row of bRows) {
+        branchMap.set(Number(row.id), { branchName: row.branch_name, courseName: row.course_name ?? "" });
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }
+
+  const detailedAssignedSubjects = assignedSubjects.map((s) => ({
+    subjectId: s.subject_id,
+    subjectCode: s.subject_code || "—",
+    subjectName: s.subject_name || "—",
+    sectionName: s.section_name,
+    batch: s.batch,
+    yearOfStudy: s.year_of_study,
+    semesterNumber: s.semester_number,
+    branchId: s.branch_id,
+    branchName: branchMap.get(s.branch_id)?.branchName || "—",
+    courseName: branchMap.get(s.branch_id)?.courseName || "—",
+    slotType: s.slot_type || (s.subject_name?.toLowerCase().includes("lab") ? "Lab" : "Theory"),
+    weeklyPeriods: s.entry_count,
+    studentCount: s.studentCount,
+  }));
 
   const uniqueSubjectMap = new Map<number, string>();
   let theoryCount = 0;
@@ -1004,5 +1053,571 @@ export async function getSubjectTeacherDashboardData(
     pendingWork,
     studentsOverview,
     upcomingDeadlines,
+    assignedSubjects: detailedAssignedSubjects,
+  };
+}
+
+export type SubjectStudentAttendanceDetails = {
+  subject: {
+    id: number;
+    code: string;
+    name: string;
+    type: string | null;
+    slotType: string | null;
+  };
+  context: {
+    collegeId: number | null;
+    collegeName: string | null;
+    courseId: number | null;
+    courseName: string | null;
+    branchId: number | null;
+    branchName: string | null;
+    batch: string | null;
+    yearOfStudy: number | null;
+    semesterNumber: number | null;
+    sectionName: string | null;
+    academicYear: string | null;
+    facultyName: string | null;
+  };
+  academicWindow: {
+    startDate: string | null;
+    endDate: string | null;
+    attendanceEndDate: string | null;
+    label: string;
+    source: string;
+    totalInstructionalDays?: number;
+  };
+  metrics: {
+    totalStudents: number;
+    totalClassesConducted: number;
+    averageAttendancePct: number;
+    goodStandingCount: number;
+    warningCount: number;
+    criticalCount: number;
+    eligiblePct: number;
+  };
+  sessionsSummary: Array<{
+    sessionId: number;
+    sessionDate: string;
+    startTime: string | null;
+    endTime: string | null;
+    slotLabel?: string | null;
+    roomLabel?: string | null;
+    status: string;
+    presentCount: number;
+    absentCount: number;
+    totalCount: number;
+  }>;
+  students: Array<{
+    studentId: number;
+    admissionNumber: string;
+    pinNo: string | null;
+    studentName: string;
+    hasPhoto: boolean;
+    photoUrl?: string | null;
+    totalConducted: number;
+    presentCount: number;
+    absentCount: number;
+    odCount: number;
+    leaveCount: number;
+    attendancePct: number;
+    status: "good" | "warning" | "critical";
+    overallSemesterAttendancePct?: number | null;
+    recentMarks: Array<{
+      sessionDate: string;
+      slotLabel?: string | null;
+      status: "present" | "absent" | "od" | "leave";
+    }>;
+  }>;
+};
+
+export async function getSubjectStudentAttendanceDetails(
+  authz: AuthzContext,
+  input: {
+    subjectId: number;
+    sectionName?: string;
+    branchId?: number;
+    academicYear?: string;
+    semesterNumber?: number;
+    yearOfStudy?: number;
+    batch?: string;
+    courseId?: number;
+    collegeId?: number;
+    facultyStaffLinkId?: number;
+  },
+): Promise<SubjectStudentAttendanceDetails> {
+  const subjectId = Number(input.subjectId);
+  if (!Number.isFinite(subjectId) || subjectId <= 0) {
+    throw Object.assign(new Error("Invalid subject id"), { status: 400 });
+  }
+
+  // 1. Resolve subject metadata & class context from ap_class_sessions & ap_timetable_plans
+  type SessionContextRow = RowDataPacket & {
+    subject_id: number;
+    subject_code: string | null;
+    subject_name: string | null;
+    subject_type_snapshot: string | null;
+    section_name: string | null;
+    branch_id: number;
+    college_id: number | null;
+    course_id: number | null;
+    batch: string | null;
+    year_of_study: number | null;
+    semester_number: number | null;
+    academic_year_label: string | null;
+    faculty_staff_link_id: number | null;
+    faculty_name: string | null;
+  };
+
+  const contextWhere = ["cs.subject_id = ?"];
+  const contextParams: unknown[] = [subjectId];
+
+  if (input.branchId) {
+    contextWhere.push("cs.branch_id = ?");
+    contextParams.push(input.branchId);
+  }
+  if (input.sectionName && input.sectionName.trim() && input.sectionName !== "all") {
+    contextWhere.push("cs.section_name = ?");
+    contextParams.push(input.sectionName.trim());
+  }
+
+  const contextRows = await queryAcademic<SessionContextRow[]>(
+    `
+    SELECT
+      cs.subject_id,
+      cs.subject_code,
+      cs.subject_name,
+      cs.subject_type_snapshot,
+      cs.section_name,
+      cs.branch_id,
+      cs.college_id,
+      p.course_id,
+      p.batch,
+      p.year_of_study,
+      p.semester_number,
+      p.academic_year_label,
+      cs.faculty_staff_link_id,
+      sl.display_name AS faculty_name
+    FROM ap_class_sessions cs
+    LEFT JOIN ap_timetable_plans p ON p.id = cs.plan_id
+    LEFT JOIN ap_staff_link sl ON sl.id = cs.faculty_staff_link_id
+    WHERE ${contextWhere.join(" AND ")}
+    ORDER BY cs.id DESC
+    LIMIT 1
+    `,
+    contextParams,
+  );
+
+  const ctx = contextRows[0];
+
+  const collegeId = input.collegeId ?? ctx?.college_id ?? null;
+  const courseId = input.courseId ?? ctx?.course_id ?? null;
+  const branchId = input.branchId ?? ctx?.branch_id ?? null;
+  const batch = input.batch ?? ctx?.batch ?? null;
+  const yearOfStudy = input.yearOfStudy ?? ctx?.year_of_study ?? null;
+  const semesterNumber = input.semesterNumber ?? ctx?.semester_number ?? null;
+  const academicYear = input.academicYear ?? ctx?.academic_year_label ?? null;
+  const sectionName = input.sectionName ?? ctx?.section_name ?? null;
+
+  // 2. Resolve Course, Branch, and College names from Student DB
+  let branchName: string | null = null;
+  let courseName: string | null = null;
+  let collegeName: string | null = null;
+
+  if (branchId) {
+    try {
+      const bRows = await queryStudent<(RowDataPacket & { name: string })[]>(
+        "SELECT name FROM course_branches WHERE id = ? LIMIT 1",
+        [branchId],
+      );
+      if (bRows[0]) branchName = bRows[0].name;
+    } catch {
+      // safe fallback
+    }
+  }
+  if (courseId) {
+    try {
+      const cRows = await queryStudent<(RowDataPacket & { name: string })[]>(
+        "SELECT name FROM courses WHERE id = ? LIMIT 1",
+        [courseId],
+      );
+      if (cRows[0]) courseName = cRows[0].name;
+    } catch {
+      // safe fallback
+    }
+  }
+  if (collegeId) {
+    try {
+      const clgRows = await queryStudent<(RowDataPacket & { name: string })[]>(
+        "SELECT name FROM colleges WHERE id = ? LIMIT 1",
+        [collegeId],
+      );
+      if (clgRows[0]) collegeName = clgRows[0].name;
+    } catch {
+      // safe fallback
+    }
+  }
+
+  // 3. Resolve Academic Window (Semester start date & end date)
+  let windowData = null;
+  if (collegeId && courseId && yearOfStudy && semesterNumber) {
+    windowData = await resolveSemesterWindow({
+      collegeId,
+      courseId,
+      batch,
+      yearOfStudy,
+      semesterNumber,
+    });
+  }
+
+  const today = todayIso();
+  const startDate = windowData?.startDate ?? "2026-06-01";
+  const endDate = windowData?.endDate ?? "2026-11-30";
+  const attendanceEndDate = windowData?.endDate && windowData.endDate < today ? windowData.endDate : today;
+  const academicWindowLabel = windowData
+    ? `Academic Semester Window (${windowData.startDate} to ${windowData.endDate})`
+    : `Academic Year ${academicYear || "2026-2027"} (Estimated Window)`;
+
+  // 4. Load Enrolled Students (Roster)
+  type StudentRow = RowDataPacket & {
+    id: number;
+    admission_number: string;
+    pin_no: string | null;
+    student_name: string;
+    has_photo: number;
+    section: string | null;
+    section_name: string | null;
+  };
+
+  const studentWhere: string[] = [
+    "(s.student_status IS NULL OR TRIM(COALESCE(s.student_status, '')) COLLATE utf8mb4_unicode_ci NOT IN ('relieved','discontinued','inactive','cancelled'))",
+  ];
+  const studentParams: unknown[] = [];
+
+  if (branchId) {
+    studentWhere.push("s.branch_id = ?");
+    studentParams.push(branchId);
+  }
+  if (yearOfStudy) {
+    studentWhere.push("s.current_year = ?");
+    studentParams.push(yearOfStudy);
+  }
+  if (semesterNumber) {
+    studentWhere.push("s.current_semester = ?");
+    studentParams.push(semesterNumber);
+  }
+  if (collegeId) {
+    studentWhere.push("s.college_id = ?");
+    studentParams.push(collegeId);
+  }
+  if (courseId) {
+    studentWhere.push("s.course_id = ?");
+    studentParams.push(courseId);
+  }
+  if (batch) {
+    const rawBatch = batch.trim();
+    const cleanBatch = rawBatch.slice(0, 4);
+    studentWhere.push(`(
+      TRIM(COALESCE(s.batch, '')) COLLATE utf8mb4_unicode_ci = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR TRIM(COALESCE(s.batch, '')) COLLATE utf8mb4_unicode_ci = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR s.batch LIKE ?
+    )`);
+    studentParams.push(rawBatch, cleanBatch, `${cleanBatch}%`);
+  }
+  if (sectionName && sectionName.trim() && sectionName !== "all" && sectionName !== "All Sections") {
+    const rawSec = sectionName.trim();
+    const shortSec = rawSec.replace(/^section\s+/i, "").trim();
+    studentWhere.push(`(
+      TRIM(COALESCE(
+        ss.section_name COLLATE utf8mb4_unicode_ci,
+        s.section COLLATE utf8mb4_unicode_ci,
+        '' COLLATE utf8mb4_unicode_ci
+      )) = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR TRIM(COALESCE(
+        ss.section_name COLLATE utf8mb4_unicode_ci,
+        s.section COLLATE utf8mb4_unicode_ci,
+        '' COLLATE utf8mb4_unicode_ci
+      )) = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR TRIM(COALESCE(
+        ss.section_name COLLATE utf8mb4_unicode_ci,
+        s.section COLLATE utf8mb4_unicode_ci,
+        '' COLLATE utf8mb4_unicode_ci
+      )) = TRIM(?) COLLATE utf8mb4_unicode_ci
+      OR TRIM(COALESCE(
+        ss.section_name COLLATE utf8mb4_unicode_ci,
+        s.section COLLATE utf8mb4_unicode_ci,
+        '' COLLATE utf8mb4_unicode_ci
+      )) = '' COLLATE utf8mb4_unicode_ci
+    )`);
+    studentParams.push(rawSec, shortSec, `Section ${shortSec}`);
+  }
+
+  const rosterStudents = await queryStudent<StudentRow[]>(
+    `
+    SELECT
+      s.id,
+      s.admission_number,
+      s.pin_no,
+      s.student_name,
+      CASE WHEN s.student_photo IS NOT NULL AND TRIM(s.student_photo) <> '' THEN 1 ELSE 0 END AS has_photo,
+      s.section,
+      ss.section_name
+    FROM students s
+    LEFT JOIN student_sections ss ON ss.student_id = s.id
+    WHERE ${studentWhere.join(" AND ")}
+    GROUP BY s.id, s.admission_number, s.pin_no, s.student_name, has_photo, s.section, ss.section_name
+    ORDER BY COALESCE(NULLIF(s.pin_no, ''), s.admission_number), s.student_name
+    LIMIT 250
+    `,
+    studentParams,
+  );
+
+  // 5. Load Posted Slot Sessions for this subject in the academic window from our portal
+  type PostedSessionRow = RowDataPacket & {
+    session_id: number;
+    session_date: string;
+    start_time: string | null;
+    end_time: string | null;
+    slot_label: string | null;
+    room_label: string | null;
+    status: string;
+    present_count: number;
+    absent_count: number;
+    od_count: number;
+    leave_count: number;
+  };
+
+  const sessionWhere = [
+    "cs.subject_id = ?",
+    "cs.session_date >= ?",
+    "cs.session_date <= ?",
+  ];
+  const sessionParams: unknown[] = [subjectId, startDate, endDate];
+
+  if (branchId) {
+    sessionWhere.push("cs.branch_id = ?");
+    sessionParams.push(branchId);
+  }
+  if (sectionName && sectionName.trim() && sectionName !== "all" && sectionName !== "All Sections") {
+    const rawSec = sectionName.trim();
+    const shortSec = rawSec.replace(/^section\s+/i, "").trim();
+    sessionWhere.push(`(
+      cs.section_name IS NULL
+      OR TRIM(cs.section_name) = ?
+      OR TRIM(cs.section_name) = ?
+      OR TRIM(cs.section_name) = ?
+    )`);
+    sessionParams.push(rawSec, shortSec, `Section ${shortSec}`);
+  }
+
+  const postedSessionRows = await queryAcademic<PostedSessionRow[]>(
+    `
+    SELECT
+      cs.id AS session_id,
+      cs.session_date,
+      cs.start_time,
+      cs.end_time,
+      COALESCE(ts.label, CONCAT(TIME_FORMAT(cs.start_time, '%H:%i'), ' - ', TIME_FORMAT(cs.end_time, '%H:%i'))) AS slot_label,
+      cs.room_label,
+      cs.status,
+      COALESCE(ap.present_count, 0) AS present_count,
+      COALESCE(ap.absent_count, 0) AS absent_count,
+      COALESCE(ap.od_count, 0) AS od_count,
+      COALESCE(ap.leave_count, 0) AS leave_count
+    FROM ap_class_sessions cs
+    INNER JOIN ap_attendance_posts ap ON ap.class_session_id = cs.id
+    LEFT JOIN ap_timing_template_slots ts ON ts.id = COALESCE(cs.timing_slot_id, cs.period_slot_id)
+    WHERE ${sessionWhere.join(" AND ")}
+    ORDER BY cs.session_date DESC, cs.start_time DESC
+    `,
+    sessionParams,
+  );
+
+  const totalClassesConducted = postedSessionRows.length;
+
+  // 6. Load Student-Level Subject Attendance Marks from portal's ap_attendance_post_students
+  type StudentMarkRow = RowDataPacket & {
+    student_db_id: number;
+    session_id: number;
+    session_date: string;
+    slot_label: string | null;
+    status: "present" | "absent" | "od" | "leave";
+  };
+
+  const markRows = await queryAcademic<StudentMarkRow[]>(
+    `
+    SELECT
+      aps.student_db_id,
+      cs.id AS session_id,
+      cs.session_date,
+      COALESCE(ts.label, CONCAT(TIME_FORMAT(cs.start_time, '%H:%i'), ' - ', TIME_FORMAT(cs.end_time, '%H:%i'))) AS slot_label,
+      aps.status
+    FROM ap_attendance_post_students aps
+    INNER JOIN ap_attendance_posts ap ON ap.id = aps.attendance_post_id
+    INNER JOIN ap_class_sessions cs ON cs.id = ap.class_session_id
+    LEFT JOIN ap_timing_template_slots ts ON ts.id = COALESCE(cs.timing_slot_id, cs.period_slot_id)
+    WHERE ${sessionWhere.join(" AND ")}
+    ORDER BY cs.session_date DESC, cs.start_time DESC
+    `,
+    sessionParams,
+  );
+
+  const studentMarksMap = new Map<
+    number,
+    {
+      present: number;
+      absent: number;
+      od: number;
+      leave: number;
+      recentMarks: Array<{ sessionDate: string; slotLabel?: string | null; status: "present" | "absent" | "od" | "leave" }>;
+    }
+  >();
+
+  for (const row of markRows) {
+    const sId = Number(row.student_db_id);
+    const existing = studentMarksMap.get(sId) || {
+      present: 0,
+      absent: 0,
+      od: 0,
+      leave: 0,
+      recentMarks: [],
+    };
+
+    if (row.status === "present") existing.present += 1;
+    else if (row.status === "absent") existing.absent += 1;
+    else if (row.status === "od") {
+      existing.od += 1;
+      existing.present += 1; // OD counts towards present attendance
+    } else if (row.status === "leave") existing.leave += 1;
+
+    if (existing.recentMarks.length < 8) {
+      existing.recentMarks.push({
+        sessionDate: String(row.session_date).slice(0, 10),
+        slotLabel: row.slot_label ?? null,
+        status: row.status,
+      });
+    }
+
+    studentMarksMap.set(sId, existing);
+  }
+
+  // 7. Calculate Student-Level and Class Metrics based directly on portal slot session records
+  let sumAttendancePct = 0;
+  let goodStandingCount = 0;
+  let warningCount = 0;
+  let criticalCount = 0;
+
+  const studentsList = rosterStudents.map((st) => {
+    const sId = Number(st.id);
+    const marks = studentMarksMap.get(sId);
+
+    const presentCount = marks?.present ?? 0;
+    const absentCount = marks?.absent ?? 0;
+    const odCount = marks?.od ?? 0;
+    const leaveCount = marks?.leave ?? 0;
+
+    let attendancePct: number;
+    let status: "good" | "warning" | "critical";
+
+    if (totalClassesConducted > 0) {
+      attendancePct = Math.round((presentCount / totalClassesConducted) * 1000) / 10;
+      if (attendancePct >= 75) {
+        status = "good";
+        goodStandingCount++;
+      } else if (attendancePct >= 65) {
+        status = "warning";
+        warningCount++;
+      } else {
+        status = "critical";
+        criticalCount++;
+      }
+      sumAttendancePct += attendancePct;
+    } else {
+      // When no classes have been conducted yet in this portal for this subject
+      attendancePct = 0;
+      status = "good";
+    }
+
+    return {
+      studentId: sId,
+      admissionNumber: st.admission_number,
+      pinNo: st.pin_no ?? null,
+      studentName: st.student_name,
+      hasPhoto: Boolean(st.has_photo),
+      totalConducted: totalClassesConducted,
+      presentCount,
+      absentCount,
+      odCount,
+      leaveCount,
+      attendancePct,
+      status,
+      overallSemesterAttendancePct: null,
+      recentMarks: marks?.recentMarks ?? [],
+    };
+  });
+
+  const totalStudents = studentsList.length;
+  const averageAttendancePct =
+    totalClassesConducted > 0 && totalStudents > 0
+      ? Math.round((sumAttendancePct / totalStudents) * 10) / 10
+      : 0;
+  const eligiblePct =
+    totalClassesConducted > 0 && totalStudents > 0
+      ? Math.round((goodStandingCount / totalStudents) * 100)
+      : totalStudents > 0
+        ? 100
+        : 0;
+
+  return {
+    subject: {
+      id: subjectId,
+      code: ctx?.subject_code ?? "—",
+      name: ctx?.subject_name ?? "Subject",
+      type: ctx?.subject_type_snapshot ?? null,
+      slotType: ctx?.subject_type_snapshot ?? null,
+    },
+    context: {
+      collegeId,
+      collegeName,
+      courseId,
+      courseName,
+      branchId,
+      branchName,
+      batch,
+      yearOfStudy,
+      semesterNumber,
+      sectionName: sectionName || "All Sections",
+      academicYear: academicYear || "2026-2027",
+      facultyName: ctx?.faculty_name ?? null,
+    },
+    academicWindow: {
+      startDate: windowData?.startDate ?? startDate,
+      endDate: windowData?.endDate ?? endDate,
+      attendanceEndDate,
+      label: academicWindowLabel,
+      source: windowData?.source ?? "fallback_window",
+    },
+    metrics: {
+      totalStudents,
+      totalClassesConducted,
+      averageAttendancePct,
+      goodStandingCount,
+      warningCount,
+      criticalCount,
+      eligiblePct,
+    },
+    sessionsSummary: postedSessionRows.slice(0, 30).map((ps) => ({
+      sessionId: Number(ps.session_id),
+      sessionDate: String(ps.session_date).slice(0, 10),
+      startTime: ps.start_time,
+      endTime: ps.end_time,
+      slotLabel: ps.slot_label ?? null,
+      roomLabel: ps.room_label ?? null,
+      status: ps.status,
+      presentCount: Number(ps.present_count || 0),
+      absentCount: Number(ps.absent_count || 0),
+      totalCount: Number(ps.present_count || 0) + Number(ps.absent_count || 0),
+    })),
+    students: studentsList,
   };
 }

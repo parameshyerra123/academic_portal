@@ -60,6 +60,12 @@ export const NAV_GROUPS: NavGroup[] = [
         permissions: ["students.view"],
       },
       {
+        label: "My Subjects",
+        href: "/my-subjects",
+        icon: BookOpen,
+        permissions: ["dashboard.view", "my_timetable.view", "attendance.view"],
+      },
+      {
         label: "My Timetable",
         href: "/my-timetable",
         icon: CalendarCheck,
@@ -264,11 +270,13 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Sidebar routes shown to teaching staff without institute-wide admin permissions. */
 export const TEACHING_STAFF_NAV_HREFS = new Set([
   "/dashboard",
+  "/my-subjects",
   "/my-timetable",
   "/attendance-posting",
   "/internal-marks",
   "/requests",
   "/mentoring-risks",
+  "/user-management",
 ]);
 
 /** Sidebar routes hidden for global super admin (institute oversight only). */

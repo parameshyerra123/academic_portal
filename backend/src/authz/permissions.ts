@@ -241,6 +241,7 @@ const ROLE_PERMISSIONS_BASE: Record<RoleKey, Permission[]> = {
     ...MENTORING_MENTOR,
     "internal_marks.view",
     "internal_marks.edit",
+    "user_management.view",
   ],
 };
 
